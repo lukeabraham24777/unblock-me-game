@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from "react";
+import { Analytics } from "@vercel/analytics/react";
 
 const GRID_SIZE = 6;
 const CELL_PX = 72;
@@ -801,9 +802,7 @@ export default function UnblockMe() {
                   const radius = (hasBlock || isObs) ? cellRadius(row, col) : "8px";
                   const borders = cellBorders(row, col);
                   const borderColor = cell
-                    ? (cell.isObstacle ? "rgba(100,100,130,0.6)"
-                      : cell.isTarget ? "rgba(255,140,120,0.55)"
-                      : "rgba(120,190,255,0.45)")
+                    ? "rgba(255,255,255,0.5)"
                     : "transparent";
 
                   return (
@@ -885,8 +884,8 @@ export default function UnblockMe() {
                           borderLeftWidth: borders ? borders.borderLeft : 0,
                           boxShadow: isSel
                             ? `0 0 0 2px ${GS.selectedGlow}, 0 0 20px ${GS.selectedGlow}, inset 0 1px 0 rgba(255,255,255,0.25)`
-                            : hasBlock
-                            ? "inset 0 1px 0 rgba(255,255,255,0.25), 0 4px 12px rgba(0,0,0,0.3)"
+                            : (hasBlock || isObs)
+                            ? "inset 0 1px 0 rgba(255,255,255,0.3), inset 0 -1px 0 rgba(255,255,255,0.08), 0 0 8px rgba(255,255,255,0.07), 0 4px 12px rgba(0,0,0,0.3)"
                             : "none",
                           transition: "box-shadow 0.2s cubic-bezier(0.4,0,0.2,1)",
                           overflow: "hidden",
@@ -942,6 +941,7 @@ export default function UnblockMe() {
           {mode === MODES.BUILD && (
             <div style={{
               width: 270,
+              marginLeft: "40px",
               background: GS.glass,
               backdropFilter: GS.blur,
               WebkitBackdropFilter: GS.blur,
@@ -1155,6 +1155,7 @@ export default function UnblockMe() {
         ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 4px; }
         ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.2); }
       `}</style>
+      <Analytics />
     </div>
   );
 }
