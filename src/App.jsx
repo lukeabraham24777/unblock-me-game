@@ -2,7 +2,8 @@ import { useState, useCallback, useEffect, useRef } from "react";
 
 const GRID_SIZE = 6;
 const CELL_PX = 72;
-const GAP = 3;
+const GAP = 0;
+const BOARD_PAD = 6;
 
 const emptyGrid = () => Array.from({ length: GRID_SIZE }, () => Array(GRID_SIZE).fill(null));
 
@@ -47,7 +48,7 @@ function buildGrid(blocks) {
     const cells = getBlockCells(b);
     cells.forEach((c, i) => {
       if (c.row >= 0 && c.row < GRID_SIZE && c.col >= 0 && c.col < GRID_SIZE) {
-        const letter = b.isObstacle ? "■" : (b.letters[i] || "");
+        const letter = b.isObstacle ? (b.letters[0] || "") : (b.letters[i] || "");
         grid[c.row][c.col] = { blockId: b.id, letter, isTarget: b.isTarget, isObstacle: b.isObstacle };
       }
     });
@@ -161,8 +162,8 @@ export default function UnblockMe() {
   }, []);
 
   const pixelToCell = useCallback((px, py) => {
-    const col = Math.floor((px - GAP) / (CELL_PX + GAP));
-    const row = Math.floor((py - GAP) / (CELL_PX + GAP));
+    const col = Math.floor((px - BOARD_PAD) / (CELL_PX + GAP));
+    const row = Math.floor((py - BOARD_PAD) / (CELL_PX + GAP));
     return {
       row: Math.max(0, Math.min(GRID_SIZE - 1, row)),
       col: Math.max(0, Math.min(GRID_SIZE - 1, col)),
@@ -214,10 +215,8 @@ export default function UnblockMe() {
           const movedBlock = { ...draggingExisting, row: cell.row, col: cell.col };
           if (isValidPlacement(movedBlock, blocks, draggingExisting.id)) {
             setBlocks((prev) => prev.map((b) => b.id === draggingExisting.id ? movedBlock : b));
-            if (!draggingExisting.isObstacle) {
-              setEditingBlockId(draggingExisting.id);
-              setEditLetters(draggingExisting.letters.trimEnd());
-            }
+            setEditingBlockId(draggingExisting.id);
+            setEditLetters(draggingExisting.letters.trimEnd());
           } else {
             setBlocks((prev) => prev.map((b) => b.id === draggingExisting.id ? draggingExisting : b));
           }
@@ -241,10 +240,8 @@ export default function UnblockMe() {
           };
           if (isValidPlacement(newBlock, blocks)) {
             setBlocks((prev) => [...prev, newBlock]);
-            if (!newBlock.isObstacle) {
-              setEditingBlockId(newBlock.id);
-              setEditLetters(newBlock.letters.trimEnd());
-            }
+            setEditingBlockId(newBlock.id);
+            setEditLetters(newBlock.letters.trimEnd());
           }
         }
         setDraggingTemplate(null);
@@ -508,6 +505,34 @@ export default function UnblockMe() {
     return cell && cell.blockId === selectedBlockId;
   };
 
+  // Per-edge border for block outlines (only outer edges get a border)
+  const cellBorders = (row, col) => {
+    const cell = grid[row][col];
+    if (!cell) return null;
+    if (cell.isObstacle) return { borderTop: "2px", borderRight: "2px", borderBottom: "2px", borderLeft: "2px" };
+    const block = blocks.find((b) => b.id === cell.blockId);
+    if (!block) return null;
+    const cells = getBlockCells(block);
+    const idx = cells.findIndex((c) => c.row === row && c.col === col);
+    const W = "2px";
+    const N = "0px";
+    if (block.orientation === "horizontal") {
+      return {
+        borderTop: W,
+        borderBottom: W,
+        borderLeft: idx === 0 ? W : N,
+        borderRight: idx === cells.length - 1 ? W : N,
+      };
+    } else {
+      return {
+        borderLeft: W,
+        borderRight: W,
+        borderTop: idx === 0 ? W : N,
+        borderBottom: idx === cells.length - 1 ? W : N,
+      };
+    }
+  };
+
   const activeDrag = draggingTemplate || (draggingExisting ? {
     length: draggingExisting.isObstacle ? 1 : draggingExisting.length,
     orientation: draggingExisting.orientation,
@@ -741,7 +766,7 @@ export default function UnblockMe() {
             {hasTarget && (
               <div style={{
                 position: "absolute", right: -32,
-                top: GAP + exitRow * (CELL_PX + GAP) + CELL_PX / 2 - 14,
+                top: BOARD_PAD + exitRow * (CELL_PX + GAP) + CELL_PX / 2 - 14,
                 width: 32, height: 28, display: "flex", alignItems: "center", justifyContent: "center",
                 fontSize: "22px", color: GS.accentRed,
                 filter: `drop-shadow(0 0 10px rgba(255,107,107,0.7))`,
@@ -755,7 +780,7 @@ export default function UnblockMe() {
               display: "grid",
               gridTemplateColumns: `repeat(${GRID_SIZE}, ${CELL_PX}px)`,
               gridTemplateRows: `repeat(${GRID_SIZE}, ${CELL_PX}px)`,
-              gap: `${GAP}px`, padding: `${GAP}px`,
+              gap: `${GAP}px`, padding: `${BOARD_PAD}px`,
               background: GS.gridBg,
               backdropFilter: GS.blur,
               WebkitBackdropFilter: GS.blur,
@@ -774,6 +799,12 @@ export default function UnblockMe() {
                   const isObs = cell && cell.isObstacle;
                   const dividers = cellDividers(row, col);
                   const radius = (hasBlock || isObs) ? cellRadius(row, col) : "8px";
+                  const borders = cellBorders(row, col);
+                  const borderColor = cell
+                    ? (cell.isObstacle ? "rgba(100,100,130,0.6)"
+                      : cell.isTarget ? "rgba(255,140,120,0.55)"
+                      : "rgba(120,190,255,0.45)")
+                    : "transparent";
 
                   return (
                     <div
@@ -809,10 +840,8 @@ export default function UnblockMe() {
                               window.removeEventListener("mousemove", onPendingMove);
                               window.removeEventListener("mouseup", onPendingUp);
                               if (!dragStarted) {
-                                if (!b.isObstacle) {
-                                  setEditingBlockId(b.id);
-                                  setEditLetters(b.letters.trimEnd());
-                                }
+                                setEditingBlockId(b.id);
+                                setEditLetters(b.letters.trimEnd());
                               }
                             };
 
@@ -845,14 +874,15 @@ export default function UnblockMe() {
                           display: "flex", alignItems: "center", justifyContent: "center",
                           fontSize: "22px", fontWeight: 700,
                           fontFamily: "'Space Grotesk', sans-serif",
-                          color: isObs ? "transparent" : "rgba(255,255,255,0.95)",
+                          color: "rgba(255,255,255,0.95)",
                           textShadow: hasBlock ? "0 1px 4px rgba(0,0,0,0.5)" : "none",
                           letterSpacing: "2px",
-                          border: `1px solid ${
-                            isObs ? "rgba(80,80,100,0.3)"
-                            : cell.isTarget ? "rgba(255,120,100,0.25)"
-                            : "rgba(100,180,255,0.2)"
-                          }`,
+                          borderStyle: "solid",
+                          borderColor: borderColor,
+                          borderTopWidth: borders ? borders.borderTop : 0,
+                          borderRightWidth: borders ? borders.borderRight : 0,
+                          borderBottomWidth: borders ? borders.borderBottom : 0,
+                          borderLeftWidth: borders ? borders.borderLeft : 0,
                           boxShadow: isSel
                             ? `0 0 0 2px ${GS.selectedGlow}, 0 0 20px ${GS.selectedGlow}, inset 0 1px 0 rgba(255,255,255,0.25)`
                             : hasBlock
@@ -959,12 +989,15 @@ export default function UnblockMe() {
               </div>
 
               {/* Letter editor */}
-              {editingBlockId && !blocks.find((b) => b.id === editingBlockId)?.isObstacle && blocks.find((b) => b.id === editingBlockId) && (
+              {editingBlockId && blocks.find((b) => b.id === editingBlockId) && (
                 <LetterEditor
                   block={blocks.find((b) => b.id === editingBlockId)}
                   editLetters={editLetters}
                   setEditLetters={setEditLetters}
                   saveLetters={saveLetters}
+                  setBlocks={setBlocks}
+                  editingBlockId={editingBlockId}
+                  setEditingBlockId={setEditingBlockId}
                 />
               )}
 
@@ -980,7 +1013,7 @@ export default function UnblockMe() {
                       <div key={b.id}
                         onClick={() => {
                           setSelectedBlockId(b.id);
-                          if (!b.isObstacle) { setEditingBlockId(b.id); setEditLetters(b.letters.trimEnd()); }
+                          setEditingBlockId(b.id); setEditLetters(b.letters.trimEnd());
                         }}
                         style={{
                           display: "flex", justifyContent: "space-between", alignItems: "center",
@@ -997,7 +1030,7 @@ export default function UnblockMe() {
                             border: `1px solid ${b.isObstacle ? "rgba(80,80,100,0.5)" : "rgba(255,255,255,0.15)"}`,
                             boxShadow: "0 1px 3px rgba(0,0,0,0.3)",
                           }} />
-                          <span>{b.isObstacle ? "Obstacle" : b.letters.trim() || "—"}</span>
+                          <span>{b.isObstacle ? (b.letters.trim() || "■") : b.letters.trim() || "—"}</span>
                           <span style={{ color: GS.textDim }}>({b.row},{b.col})</span>
                         </span>
                         <button onClick={(e) => { e.stopPropagation(); removeBlock(b.id); }}
@@ -1222,11 +1255,75 @@ function GlassPanel({ children }) {
   );
 }
 
-function LetterEditor({ block, editLetters, setEditLetters, saveLetters }) {
-  const inputRef = useRef(null);
+function LetterEditor({ block, editLetters, setEditLetters, saveLetters, setBlocks, editingBlockId, setEditingBlockId }) {
+  const len = block.isObstacle ? 1 : block.length;
+  const cellRefs = useRef([]);
+  const [focusIdx, setFocusIdx] = useState(0);
+
   useEffect(() => {
-    if (inputRef.current) inputRef.current.focus();
+    cellRefs.current = cellRefs.current.slice(0, len);
+    // Focus first empty cell or first cell
+    const firstEmpty = editLetters.length;
+    const idx = Math.min(firstEmpty, len - 1);
+    setFocusIdx(idx);
+    setTimeout(() => cellRefs.current[idx]?.focus(), 30);
   }, [block.id]);
+
+  // Live-update the block whenever letters change
+  const applyLetters = (newLetters) => {
+    setEditLetters(newLetters);
+    const padded = newLetters.toUpperCase().padEnd(len, " ").slice(0, len);
+    setBlocks((prev) =>
+      prev.map((b) => b.id === editingBlockId ? { ...b, letters: padded } : b)
+    );
+  };
+
+  const handleKeyDown = (idx, e) => {
+    e.stopPropagation();
+    if (e.key === "Backspace") {
+      e.preventDefault();
+      const arr = editLetters.padEnd(len, " ").split("");
+      arr[idx] = " ";
+      const newLetters = arr.join("");
+      applyLetters(newLetters);
+      if (idx > 0) {
+        setFocusIdx(idx - 1);
+        setTimeout(() => cellRefs.current[idx - 1]?.focus(), 10);
+      }
+    } else if (e.key === "ArrowLeft" && idx > 0) {
+      e.preventDefault();
+      setFocusIdx(idx - 1);
+      cellRefs.current[idx - 1]?.focus();
+    } else if (e.key === "ArrowRight" && idx < len - 1) {
+      e.preventDefault();
+      setFocusIdx(idx + 1);
+      cellRefs.current[idx + 1]?.focus();
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      setEditingBlockId(null);
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      setEditingBlockId(null);
+    } else if (e.key.length === 1) {
+      e.preventDefault();
+      const char = e.key.toUpperCase();
+      const arr = editLetters.padEnd(len, " ").split("");
+      arr[idx] = char;
+      const newLetters = arr.join("");
+      applyLetters(newLetters);
+      // Auto-advance
+      if (idx < len - 1) {
+        setFocusIdx(idx + 1);
+        setTimeout(() => cellRefs.current[idx + 1]?.focus(), 10);
+      } else {
+        // Last char filled — auto-close
+        setTimeout(() => setEditingBlockId(null), 200);
+      }
+    }
+  };
+
+  const padded = editLetters.padEnd(len, " ");
+  const typeLabel = block.isTarget ? "Target" : block.isObstacle ? "Obstacle" : "Block";
 
   return (
     <div style={{
@@ -1236,34 +1333,51 @@ function LetterEditor({ block, editLetters, setEditLetters, saveLetters }) {
       marginBottom: "14px",
     }}>
       <div style={{
-        fontSize: "10px", fontWeight: 600, color: GS.textDim, marginBottom: "8px",
+        fontSize: "10px", fontWeight: 600, color: GS.textDim, marginBottom: "10px",
         letterSpacing: "2px", textTransform: "uppercase",
       }}>
-        Edit Letters — {block.isTarget ? "Target" : "Block"} at ({block.row},{block.col})
+        {typeLabel} at ({block.row},{block.col}) — type to fill
       </div>
-      <div style={{ display: "flex", gap: "8px" }}>
-        <input
-          ref={inputRef}
-          value={editLetters}
-          onChange={(e) => {
-            e.stopPropagation();
-            setEditLetters(e.target.value.toUpperCase().slice(0, block.length));
-          }}
-          onMouseDown={(e) => e.stopPropagation()}
-          onClick={(e) => e.stopPropagation()}
-          maxLength={block.length}
-          placeholder={"A".repeat(block.length)}
-          style={{
-            ...glassInputStyle,
-            flex: 1, letterSpacing: "6px", fontWeight: 700, fontSize: "18px",
-            textAlign: "center",
-          }}
-          onKeyDown={(e) => {
-            e.stopPropagation();
-            if (e.key === "Enter") saveLetters();
-          }}
-        />
-        <GlassBtn onClick={saveLetters} accent small>✓</GlassBtn>
+      <div style={{ display: "flex", gap: "6px", justifyContent: "center" }}>
+        {Array.from({ length: len }).map((_, i) => {
+          const char = padded[i];
+          const isFocused = i === focusIdx;
+          return (
+            <div
+              key={i}
+              ref={(el) => cellRefs.current[i] = el}
+              tabIndex={0}
+              onFocus={() => setFocusIdx(i)}
+              onKeyDown={(e) => handleKeyDown(i, e)}
+              onMouseDown={(e) => e.stopPropagation()}
+              onClick={(e) => { e.stopPropagation(); cellRefs.current[i]?.focus(); }}
+              style={{
+                width: 44, height: 50,
+                display: "flex", alignItems: "center", justifyContent: "center",
+                fontSize: "22px", fontWeight: 700,
+                fontFamily: "'Space Grotesk', sans-serif",
+                color: char.trim() ? GS.text : GS.textDim,
+                background: isFocused ? "rgba(255,159,67,0.12)" : "rgba(255,255,255,0.04)",
+                border: isFocused ? `2px solid ${GS.accentWarm}` : `1px solid ${GS.inputBorder}`,
+                borderRadius: "8px",
+                outline: "none",
+                cursor: "text",
+                userSelect: "text",
+                WebkitUserSelect: "text",
+                transition: "all 0.15s",
+                boxShadow: isFocused ? `0 0 12px rgba(255,159,67,0.25)` : "none",
+              }}
+            >
+              {char.trim() ? char : ""}
+            </div>
+          );
+        })}
+      </div>
+      <div style={{
+        fontSize: "9px", color: GS.textDim, marginTop: "8px", textAlign: "center",
+        letterSpacing: "1px",
+      }}>
+        Type letters · Space for blank · Enter to close
       </div>
     </div>
   );
