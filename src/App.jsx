@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import { Analytics } from "@vercel/analytics/react";
+import { GlowingEffect } from "@/components/ui/glowing-effect";
 
 const GRID_SIZE = 6;
 const CELL_PX = 72;
@@ -861,7 +862,7 @@ export default function UnblockMe() {
                         border: !cell ? `1px solid ${GS.emptyCellBorder}` : "none",
                         boxSizing: "border-box",
                         transition: "background 0.15s",
-                        overflow: "hidden",
+                        overflow: "visible",
                       }}
                     >
                       {(hasBlock || isObs) && (
@@ -888,8 +889,16 @@ export default function UnblockMe() {
                             ? "inset 0 1px 0 rgba(255,255,255,0.3), inset 0 -1px 0 rgba(255,255,255,0.08), 0 0 8px rgba(255,255,255,0.07), 0 4px 12px rgba(0,0,0,0.3)"
                             : "none",
                           transition: "box-shadow 0.2s cubic-bezier(0.4,0,0.2,1)",
-                          overflow: "hidden",
+                          overflow: "visible",
                         }}>
+                          <GlowingEffect
+                            spread={30}
+                            glow={true}
+                            disabled={false}
+                            proximity={48}
+                            inactiveZone={0.01}
+                            borderWidth={2}
+                          />
                           {/* Glass reflection overlay */}
                           {hasBlock && (
                             <div style={{
