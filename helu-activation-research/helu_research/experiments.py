@@ -289,9 +289,9 @@ def run_depth_sweep(root: str, dataset: str = "fashion", depths=(1, 2, 4, 8), se
 # Experiment 6: notch occupancy + effective linearity of trained HeLU nets
 # --------------------------------------------------------------------------
 @torch.no_grad()
-def notch_stats(model: MLP, x: torch.Tensor) -> list[float]:
-    """Fraction of pre-activations in [0.5, 0.6] per hidden layer."""
-    return [float(((h >= HELU_LO) & (h <= HELU_HI)).float().mean()) for h in model.pre_activations(x)]
+def notch_stats(model: MLP, x: torch.Tensor, lo: float = HELU_LO, hi: float = HELU_HI) -> list[float]:
+    """Fraction of pre-activations in [lo, hi] per hidden layer."""
+    return [float(((h >= lo) & (h <= hi)).float().mean()) for h in model.pre_activations(x)]
 
 
 @torch.no_grad()
@@ -417,4 +417,34 @@ def run_variants(root: str, variants: list[str] | None = None, seeds=(0, 1, 2), 
         print(f"  [variant {v:18s}] sin MSE={np.mean(r['reg1d']['sin(3x)']):.4f} "
               f"x^2 MSE={np.mean(r['reg1d']['x^2']):.4f} moons={np.mean(r['cls2d']['moons']):.4f} "
               f"spirals={np.mean(r['cls2d']['spirals']):.4f} fashion={np.mean(r['fashion_mlp']):.4f}", flush=True)
+    return out
+
+
+# --------------------------------------------------------------------------
+# Experiment 10: band occupancy / linearity for selected notch variants (Fashion-MNIST MLP)
+# --------------------------------------------------------------------------
+def run_variant_occupancy(root: str, variants=("n0.5-0.6_s0.9", "n0.5-1.0_s0.2", "n0.5-2.0_s0.2", "n0.5-inf_s0.2"),
+                          seeds=(0, 1, 2), epochs: int = 3, hidden: int = 256, depth: int = 2,
+                          lr: float = 1e-3) -> dict:
+    from .activations import HELU_VARIANTS
+
+    out: dict = {"variants": list(variants), "seeds": list(seeds), "epochs": epochs, "results": {}}
+    (xtr, ytr), (xte, yte) = cached_image_tensors("fashion", root)
+    probe = xte[:2000]
+    for v in variants:
+        lo, hi, _ = HELU_VARIANTS[v]
+        recs = []
+        for s in seeds:
+            set_seed(s)
+            tr, te = loaders_from_cache("fashion", root, 128, s)
+            model = MLP(28 * 28, hidden, 10, depth, v)
+            init_band, init_r2 = notch_stats(model, probe, lo, hi), linear_fit_r2(model, probe)
+            hist = train_classifier(model, tr, te, epochs, lr, log_every=10**9)
+            recs.append({"test_acc": hist.epoch_test_acc[-1], "band_frac_init": init_band,
+                         "band_frac_trained": notch_stats(model, probe, lo, hi),
+                         "linear_r2_init": init_r2, "linear_r2_trained": linear_fit_r2(model, probe)})
+            print(f"  [occupancy {v:14s}] seed={s} acc={recs[-1]['test_acc']:.4f} "
+                  f"band init={[round(b, 3) for b in init_band]} trained={[round(b, 3) for b in recs[-1]['band_frac_trained']]} "
+                  f"R2={recs[-1]['linear_r2_trained']:.4f}", flush=True)
+        out["results"][v] = recs
     return out

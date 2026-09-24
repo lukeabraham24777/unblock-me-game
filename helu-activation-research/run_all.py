@@ -55,6 +55,7 @@ def main() -> None:
         "microbench": lambda: E.run_microbench(n=100_000 if q else 4_000_000, reps=5 if q else 20),
         "variants": lambda: E.run_variants(DATA, seeds=(0,) if q else (0, 1, 2), steps=200 if q else 3000,
                                            epochs=1 if q else 3),
+        "variant_occupancy": lambda: E.run_variant_occupancy(DATA, seeds=(0,) if q else (0, 1, 2), epochs=1 if q else 3),
     }
     names = args.only or list(jobs)
     unknown = [n for n in names if n not in jobs]

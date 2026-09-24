@@ -404,6 +404,26 @@ def table_variants():
     print("wrote tab_variants")
 
 
+
+def table_variant_occupancy():
+    d = load("variant_occupancy")
+    rows = []
+    for v in d["variants"]:
+        rs = d["results"][v]
+        lo, hi, sc = HELU_VARIANTS[v]
+        hi_s = "$\\infty$" if hi == float("inf") else f"{hi:g}"
+        acc = 100 * np.mean([r["test_acc"] for r in rs])
+        bi = 100 * np.mean([np.mean(r["band_frac_init"]) for r in rs])
+        bt = 100 * np.mean([np.mean(r["band_frac_trained"]) for r in rs])
+        r2 = np.mean([r["linear_r2_trained"] for r in rs])
+        rows.append(f"$[{lo:g},\\,{hi_s}]$ & {sc:g} & {acc:.2f} & {bi:.1f} & {bt:.1f} & {r2:.4f} \\\\")
+    (GEN / "tab_variant_occupancy.tex").write_text(
+        "\\begin{tabular}{llcccc}\n\\toprule\n"
+        " & & & \\multicolumn{2}{c}{\\% pre-act.\\ in band} & \\\\\n\\cmidrule(lr){4-5}\n"
+        "Notch & Scale & Test acc.\\ (\\%) & init & trained & $R^2$ trained \\\\\n\\midrule\n"
+        + "\n".join(rows) + "\n\\bottomrule\n\\end{tabular}\n")
+    print("wrote tab_variant_occupancy")
+
 # ---------------------------------------------------------------- LaTeX tables
 def tables():
     out = []
@@ -520,3 +540,5 @@ if __name__ == "__main__":
     if (RES / "variants.json").exists():
         fig_variants()
         table_variants()
+    if (RES / "variant_occupancy.json").exists():
+        table_variant_occupancy()
