@@ -179,10 +179,16 @@ unequal-variance $t$-test.
 \end{table}
 
 Figure~\ref{fig:reg1d} and Table~\ref{tab:reg1d} summarise E2. ReLU and GELU networks fit all four
-targets closely. The HeLU network produces, for every target, a straight line that is visually
-indistinguishable from the linear control's fit: the least-squares line through the data. Its test MSE
-is one to two orders of magnitude higher than that of ReLU or GELU. This is exactly what the null model
-predicts: the network has learned an affine map, and the notch has not been recruited to bend it.
+targets closely, with test MSE of order $10^{-4}$ to $10^{-3}$. The HeLU network does \emph{not} collapse
+to the linear control's straight line: with full-batch training on a one-dimensional input, gradient
+descent does find the notch and uses it. What it builds with it, however, is a jagged staircase. Because
+the only non-linear features of HeLU are its two jump discontinuities, the network can represent
+vertical jumps but not smooth curvature, and the fit consists of a linear trend decorated with
+irregular steps of amplitude comparable to the notch itself. The resulting test MSE is three orders of
+magnitude worse than ReLU or GELU on $\sin 3x$, $|x|$, and $x^2$ (Table~\ref{tab:reg1d}), and only
+$15$--$25\%$ better than the linear control. The step target is the most favourable case for HeLU, since
+a discontinuity is exactly what it can express, and even there its error is $30$--$40\times$ that of
+ReLU and GELU.
 
 \subsection{Non-linearly separable classification}
 
@@ -206,10 +212,13 @@ predicts: the network has learned an affine map, and the notch has not been recr
 Two-moons and two-spirals are the canonical tests of whether a model can learn a curved decision
 boundary. Figure~\ref{fig:cls2d} shows that ReLU and GELU do, reaching \accMoonsRelu\% and
 \accMoonsGelu\% on moons and \accSpiralsRelu\% and \accSpiralsGelu\% on spirals. HeLU reaches
-\accMoonsHelu\% and \accSpiralsHelu\%, matching the linear control (\accMoonsIdentity\% and
-\accSpiralsIdentity\%) to within seed noise; its decision boundary is a straight line
-(Table~\ref{tab:cls2d}). On spirals, where no linear classifier can do much better than chance, HeLU's
-accuracy is close to 50\%.
+\accMoonsHelu\% on moons and \accSpiralsHelu\% on spirals, against \accMoonsIdentity\% and
+\accSpiralsIdentity\% for the linear control (Table~\ref{tab:cls2d}). Its decision boundary is the
+linear control's straight line with small, spiky perturbations where a hidden unit's pre-activation
+crosses the notch, visible as faint striations in Figure~\ref{fig:cls2d}. On moons these perturbations
+buy a fraction of a percentage point; on spirals they cost one, and HeLU is slightly \emph{worse} than
+a linear classifier. In neither case does HeLU approach the non-linear baselines, and both differences
+from ReLU and GELU are significant at $p<10^{-4}$.
 
 \subsection{Image classification}
 

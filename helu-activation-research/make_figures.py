@@ -60,6 +60,12 @@ def legend_handles(acts=ACT_ORDER):
     return [Line2D([0], [0], color=COLOR[a], ls=STYLE[a], lw=1.8, label=ACT_LABEL[a]) for a in acts]
 
 
+def act_ticks(ax):
+    ax.set_xticks(range(len(ACT_ORDER)))
+    ax.set_xticklabels(["ReLU", "GELU", "HeLU", "Linear"], rotation=30, ha="right", fontsize=8)
+    ax.tick_params(axis="x", length=0)
+
+
 def save(fig, name: str):
     fig.savefig(FIG / f"{name}.pdf")
     fig.savefig(FIG / f"{name}.png", dpi=200)
@@ -123,6 +129,9 @@ def fig_activation():
     save(fig, "fig_activation")
 
 
+TARGET_TITLE = {"sin(3x)": "$y=\\sin 3x$", "|x|": "$y=|x|$", "x^2": "$y=x^2$", "step": "$y=\\mathbf{1}[x>0]$"}
+
+
 # ---------------------------------------------------------------- Figure 2: 1-D regression
 def fig_reg1d():
     d = load("reg1d")
@@ -133,7 +142,7 @@ def fig_reg1d():
         ax.plot(c["x"], c["y_true"], color=INK, lw=1.0, ls=":", label="target")
         for a in ACT_ORDER:
             ax.plot(c["x"], c[a], color=COLOR[a], ls=STYLE[a], lw=1.4)
-        ax.set_title(f"$y = {t}$" if t not in ("step",) else "$y = \\mathbf{1}[x>0]$")
+        ax.set_title(TARGET_TITLE[t])
         ax.set_xlim(-2, 2)
         ax.set_xlabel("$x$")
     axes[0].set_ylabel("$f(x)$")
@@ -150,9 +159,8 @@ def fig_reg1d():
             ax.bar(i, v.mean(), color=COLOR[a], width=0.62, alpha=0.9, lw=0)
             ax.scatter(np.full(len(v), i) + np.linspace(-0.15, 0.15, len(v)), v, s=8, color=INK, zorder=3)
         ax.set_yscale("log")
-        ax.set_xticks(range(len(ACT_ORDER)))
-        ax.set_xticklabels(["ReLU", "GELU", "HeLU", "Lin."])
-        ax.set_title(f"$y = {t}$" if t != "step" else "$y = \\mathbf{1}[x>0]$")
+        act_ticks(ax)
+        ax.set_title(TARGET_TITLE[t])
         ax.grid(axis="y")
         ax.set_axisbelow(True)
     axes[0].set_ylabel("test MSE (log)")
@@ -241,8 +249,7 @@ def fig_summary():
         lo = min(np.mean([r["epoch_test_acc"][-1] for r in d["runs"][a]]) for a in ACT_ORDER)
         hi = max(np.mean([r["epoch_test_acc"][-1] for r in d["runs"][a]]) for a in ACT_ORDER)
         ax.set_ylim(lo - 0.02, hi + 0.01)
-        ax.set_xticks(range(4))
-        ax.set_xticklabels(["ReLU", "GELU", "HeLU", "Lin."])
+        act_ticks(ax)
         ax.set_title(title.replace("\n", " "))
         ax.grid(axis="y")
         ax.set_axisbelow(True)
@@ -282,7 +289,7 @@ def fig_linearity():
         ax.scatter(np.full(len(v), i) + np.linspace(-0.12, 0.12, len(v)), 1 - v, s=8, color=INK, zorder=3)
     ax.set_yscale("log")
     ax.set_ylim(1e-7, 1)
-    ax.set_xticks(range(4)); ax.set_xticklabels(["ReLU", "GELU", "HeLU", "Lin."])
+    act_ticks(ax)
     ax.set_ylabel("$1 - R^2$ of best linear fit")
     ax.set_title("Non-linearity of the trained network")
     ax.grid(axis="y"); ax.set_axisbelow(True)
