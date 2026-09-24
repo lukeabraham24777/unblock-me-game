@@ -1,0 +1,10 @@
+\begin{tabular}{lcccc}
+\toprule
+ & ReLU & GELU & HeLU & Linear \\
+\midrule
+MNIST, MLP & 1.5 & 1.6 & 1.8 & 1.5 \\
+Fashion-MNIST, MLP & 1.6 & 1.6 & 1.7 & 1.4 \\
+Fashion-MNIST, CNN & 12.6 & 13.5 & 17.2 & 11.7 \\
+\midrule Activation kernel, fwd+bwd, 4M elements (ms) & 1.1 & 2.3 & 6.8 & 0.5 \\
+\bottomrule
+\end{tabular}

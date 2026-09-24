@@ -1,0 +1,12 @@
+% image benchmarks: final test accuracy, mean ± sd over seeds; Welch p-values HeLU vs others
+\begin{tabular}{lcccccccc}
+\toprule
+ & \multicolumn{4}{c}{Test accuracy (mean $\pm$ sd)} & \multicolumn{3}{c}{$p$ (HeLU vs.)} \\
+\cmidrule(lr){2-5}\cmidrule(lr){6-8}
+Benchmark & ReLU & GELU & HeLU & Linear & ReLU & GELU & Linear \\
+\midrule
+MNIST, MLP & 0.9757 $\pm$ 0.0021 & 0.9791 $\pm$ 0.0011 & 0.9150 $\pm$ 0.0035 & 0.9150 $\pm$ 0.0036 & $<10^{-4}$ & $<10^{-4}$ & 0.98 \\
+Fashion-MNIST, MLP & 0.8814 $\pm$ 0.0037 & 0.8816 $\pm$ 0.0036 & 0.8333 $\pm$ 0.0029 & 0.8333 $\pm$ 0.0029 & $<10^{-4}$ & $<10^{-4}$ & 1 \\
+Fashion-MNIST, CNN & 0.9148 $\pm$ 0.0025 & 0.9196 $\pm$ 0.0005 & 0.9035 $\pm$ 0.0050 & 0.9032 $\pm$ 0.0041 & 0.0395 & 0.0293 & 0.933 \\
+\bottomrule
+\end{tabular}

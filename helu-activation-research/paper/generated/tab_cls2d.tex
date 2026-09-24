@@ -1,0 +1,10 @@
+\begin{tabular}{lcccccc}
+\toprule
+ & \multicolumn{4}{c}{Test accuracy} & \multicolumn{2}{c}{$p$ (HeLU vs.)} \\
+\cmidrule(lr){2-5}\cmidrule(lr){6-7}
+Dataset & ReLU & GELU & HeLU & Linear & ReLU & GELU \\
+\midrule
+moons & 0.9873 $\pm$ 0.0017 & 0.9845 $\pm$ 0.0016 & 0.8803 $\pm$ 0.0078 & 0.8769 $\pm$ 0.0032 & $<10^{-4}$ & $<10^{-4}$ \\
+spirals & 0.9962 $\pm$ 0.0016 & 0.9963 $\pm$ 0.0024 & 0.6303 $\pm$ 0.0121 & 0.6486 $\pm$ 0.0061 & $<10^{-4}$ & $<10^{-4}$ \\
+\bottomrule
+\end{tabular}

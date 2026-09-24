@@ -273,7 +273,7 @@ def fig_depth():
     ax.set_xlabel("hidden layers")
     ax.set_ylabel("test accuracy")
     ax.grid(axis="y")
-    ax.legend(handles=legend_handles(), loc="lower left", fontsize=7)
+    ax.legend(handles=legend_handles(), loc="upper center", bbox_to_anchor=(0.5, -0.28), ncol=2, fontsize=7)
     fig.tight_layout()
     save(fig, "fig_depth")
 
@@ -289,6 +289,7 @@ def fig_linearity():
         ax.scatter(np.full(len(v), i) + np.linspace(-0.12, 0.12, len(v)), 1 - v, s=8, color=INK, zorder=3)
     ax.set_yscale("log")
     ax.set_ylim(1e-7, 1)
+    ax.text(3, 1.6e-7, "0 (exact)", ha="center", va="bottom", fontsize=7.5, color=INK2)
     act_ticks(ax)
     ax.set_ylabel("$1 - R^2$ of best linear fit")
     ax.set_title("Non-linearity of the trained network")
@@ -429,7 +430,7 @@ def tables():
     rows = []
     for n, title in [("mnist_mlp", "MNIST, MLP"), ("fashion_mlp", "Fashion-MNIST, MLP"), ("fashion_cnn", "Fashion-MNIST, CNN")]:
         d = load(n)
-        cells = [f"{np.mean([r['wall_time_s'] for r in d['runs'][a]]) / d['epochs']:.1f}" for a in ACT_ORDER]
+        cells = [f"{np.median([r['wall_time_s'] for r in d['runs'][a]]) / d['epochs']:.1f}" for a in ACT_ORDER]
         rows.append(f"{title} & " + " & ".join(cells) + " \\\\")
     mb = load("microbench")
     cells = [f"{mb['results'][a]['mean_ms']:.1f}" for a in ACT_ORDER]
