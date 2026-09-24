@@ -47,7 +47,7 @@ pre-activations fall inside the notch after training. HeLU is therefore best und
 approximately linear map with a small, rarely visited perturbation, and it inherits the expressivity
 limits of deep linear networks. The one setting in which HeLU comes within a point of ReLU and GELU is
 the convolutional network, where max-pooling supplies the non-linearity that the activation does not,
-and the linear control comes equally close there. An ablation over fifteen variants of the notch
+and the linear control comes equally close there. An ablation over sixteen variants of the notch
 (moved, deepened, or widened) shows that the deficit is a property of the notch design rather than of
 its particular constants. All code, raw results, and figures are released alongside this document.
 \end{abstract}
@@ -157,9 +157,10 @@ unequal-variance $t$-test.
         initialisation and after 3 epochs of training. 3 seeds.
   \item[E8: Kernel cost.] Wall time of forward plus backward through the activation alone on a
         $4\times10^6$-element tensor, 20 repetitions.
-  \item[E9: Notch variants.] Fifteen variants of \eqref{eq:helu} obtained by moving the notch
-        ($[0.5,0.6]$, $[0.1,0.2]$, $[-0.05,0.05]$), deepening it (scale $0.9$, $0.8$, $0.5$, $0.2$), or
-        widening it ($[0.5,1.0]$, $[0.5,2.0]$, $[0.5,\infty)$ at scale $0.2$). Each variant is run under
+  \item[E9: Notch variants.] Sixteen variants of \eqref{eq:helu} obtained by moving the notch
+        ($[0.5,0.6]$, $[0.1,0.2]$, $[-0.05,0.05]$), deepening it (scale $0.9$, $0.8$, $0.5$, $0.2$),
+        widening it ($[0.5,1.0]$, $[0.5,2.0]$, $[0.5,\infty)$ at scale $0.2$), or replacing it with a
+        wide symmetric band around zero ($[-0.68,0.68]$ at scale $0.5$). Each variant is run under
         the E2 protocol on $\sin 3x$ and $x^2$, the E3 protocol on moons and spirals, and the E4
         Fashion-MNIST MLP protocol for 3 epochs, all with 3 seeds.
 \end{description}
@@ -353,12 +354,12 @@ linear layers, so the difference is small in practice, but there is no efficienc
 \begin{figure}[t]
   \centering
   \includegraphics[width=\linewidth]{fig_variants.pdf}
-  \caption{E9: fifteen variants of the HeLU notch, written as $[\text{lo},\text{hi}]\times\text{scale}$.
+  \caption{E9: sixteen variants of the HeLU notch, written as $[\text{lo},\text{hi}]\times\text{scale}$.
   The first row is the original HeLU. MSE panels (log scale): bars are means over 3 seeds. Accuracy
   panels (truncated axes): the large marker is the mean and the short line spans the seeds. Small
   black dots are individual seeds, and the vertical lines are the ReLU, GELU, and linear-control means
   from the main experiments. Colour groups variants by notch position; yellow marks the widened
-  notches.}
+  notches and violet the symmetric band $[-0.68,0.68]\times0.5$.}
   \label{fig:variants}
 \end{figure}
 
@@ -372,16 +373,17 @@ linear layers, so the difference is small in practice, but there is no efficienc
 
 \begin{table}[t]
   \centering\small
-  \caption{Band occupancy and linearity for the original notch and the three widened variants
-  (Fashion-MNIST MLP, 3 epochs, means over 3 seeds). ``\% pre-act.\ in band'' is the fraction of hidden
-  pre-activations inside $[\text{lo},\text{hi}]$, averaged over the two hidden layers.}
+  \caption{Band occupancy and linearity for the original notch, the three widened variants, and the
+  symmetric band (Fashion-MNIST MLP, 3 epochs, means over 3 seeds). ``\% pre-act.\ in band'' is the
+  fraction of hidden pre-activations inside $[\text{lo},\text{hi}]$, averaged over the two hidden
+  layers.}
   \label{tab:variant-occupancy}
   \input{generated/tab_variant_occupancy.tex}
 \end{table}
 
 A natural objection to the results so far is that the constants in \eqref{eq:helu} are arbitrary and a
 different notch might work. E9 tests this directly (Figure~\ref{fig:variants},
-Table~\ref{tab:variants}). Three findings stand out.
+Table~\ref{tab:variants}). Four findings stand out.
 
 \paragraph{Moving the notch does nothing.} Placing the notch at $[0.1,0.2]$ or straddling zero at
 $[-0.05,0.05]$ gives, for every scale, results indistinguishable from the linear control on all five
@@ -410,6 +412,18 @@ distribution unless the network concentrates that distribution inside the band, 
 on a high-dimensional problem does not do so. A function that behaves differently on an entire half-line
 is what forces every unit to be non-linear, and that is exactly the property that ReLU and GELU have
 and HeLU lacks.
+
+\paragraph{A wide band around zero is escaped rather than used.} The symmetric variant
+$[-0.68,0.68]\times0.5$ is the strongest test of the ``too small, too rarely visited'' explanation,
+because it is neither: at initialisation $78$--$98\%$ of Fashion-MNIST pre-activations lie inside it
+(Table~\ref{tab:variant-occupancy}). On the toy problems it behaves like the widened notches
+($98.7\%$ on moons, $97.3\%$ on spirals, $\sin 3x$ MSE $0.005$). On Fashion-MNIST it reaches
+$83.0\%$, again the linear level, and after training the band occupancy has fallen to about $40\%$
+while the network remains linear to $R^2=0.9997$. Both halves of this function are linear ($0.5x$
+inside, $x$ outside), so a unit is non-linear only if its input distribution straddles $\pm0.68$; the
+measurements are consistent with training sorting units into one regime or the other rather than
+exploiting the edges. Where a bounded band ends, the function returns to the identity, and the
+network can always find a linear solution by arranging for that.
 }{\emph{(Variant results pending: run \texttt{python run\_all.py variants} and rebuild.)}}
 
 \section{Discussion}
@@ -456,7 +470,7 @@ from purely linear networks and significantly worse than ReLU and GELU networks 
 requires a non-linear solution. The mechanism is simple: the notch is too small and too rarely visited to
 function as a non-linearity, so the network stays linear. The only benchmark on which HeLU comes close
 to the baselines is one in which max-pooling supplies the non-linearity, and a network with no
-activation at all comes equally close there. An ablation over fifteen variants confirms that the
+activation at all comes equally close there. An ablation over sixteen variants confirms that the
 problem is the notch design rather than its constants: no bounded notch, at any position or depth we
 tried, produces a non-linear network on Fashion-MNIST, and the one variant that does is no longer a
 notch.

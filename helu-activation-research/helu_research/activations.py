@@ -64,6 +64,8 @@ HELU_VARIANTS: dict[str, tuple[float, float, float]] = {
     "n0.5-1.0_s0.2": (0.5, 1.0, 0.2),
     "n0.5-2.0_s0.2": (0.5, 2.0, 0.2),
     "n0.5-inf_s0.2": (0.5, float("inf"), 0.2),
+    # wide symmetric band around zero, halved inside
+    "n-0.68-0.68_s0.5": (-0.68, 0.68, 0.5),
 }
 
 

@@ -423,7 +423,8 @@ def run_variants(root: str, variants: list[str] | None = None, seeds=(0, 1, 2), 
 # --------------------------------------------------------------------------
 # Experiment 10: band occupancy / linearity for selected notch variants (Fashion-MNIST MLP)
 # --------------------------------------------------------------------------
-def run_variant_occupancy(root: str, variants=("n0.5-0.6_s0.9", "n0.5-1.0_s0.2", "n0.5-2.0_s0.2", "n0.5-inf_s0.2"),
+def run_variant_occupancy(root: str, variants=("n0.5-0.6_s0.9", "n0.5-1.0_s0.2", "n0.5-2.0_s0.2", "n0.5-inf_s0.2",
+                                               "n-0.68-0.68_s0.5"),
                           seeds=(0, 1, 2), epochs: int = 3, hidden: int = 256, depth: int = 2,
                           lr: float = 1e-3) -> dict:
     from .activations import HELU_VARIANTS
