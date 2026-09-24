@@ -1,0 +1,378 @@
+\documentclass[11pt]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{microtype}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{xcolor}
+\usepackage[numbers,sort&compress]{natbib}
+\usepackage[hidelinks]{hyperref}
+\usepackage{enumitem}
+
+\graphicspath{{../figures/}}
+\input{generated/macros.tex}
+
+\newtheorem{proposition}{Proposition}
+\newcommand{\helu}{\mathrm{HeLU}}
+\newcommand{\R}{\mathbb{R}}
+
+\title{Does a Notch Make a Non-Linearity?\\
+\large An Empirical Evaluation of HeLU against ReLU and GELU}
+\author{HeLU activation study\\
+\small \texttt{helu-activation-research/} in \texttt{lukeabraham24777/unblock-me-game}}
+\date{September 2026}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+We evaluate a proposed activation function, HeLU, defined as $\helu(x)=x$ everywhere except on the
+interval $0.5\le x\le 0.6$, where $\helu(x)=0.9x$. The hypothesis under test is that networks trained
+with HeLU outperform networks trained with ReLU or GELU. We compare the three activations, plus an
+identity (purely linear) control, under identical architectures, optimisers, and seeds on one-dimensional
+function regression, two-dimensional non-linearly separable classification, MNIST and Fashion-MNIST
+with multilayer perceptrons, Fashion-MNIST with a small convolutional network, a depth sweep, and a
+mechanistic analysis of the trained networks. \textbf{The hypothesis is not supported.} On every task
+whose solution requires a non-linear decision function, HeLU networks perform substantially and
+statistically significantly worse than ReLU and GELU networks, and are statistically indistinguishable
+from the linear control. A least-squares linear fit explains a fraction \rTwoHelu{} of the variance of
+a trained HeLU network's outputs (versus \rTwoRelu{} for ReLU), and only \notchHelu\% of hidden
+pre-activations fall inside the notch after training. HeLU is therefore best understood as an
+approximately linear map with a small, rarely visited perturbation, and it inherits the expressivity
+limits of deep linear networks. The one setting in which HeLU matches ReLU and GELU is the convolutional
+network, where max-pooling supplies the non-linearity that the activation does not. All code, raw
+results, and figures are released alongside this document.
+\end{abstract}
+
+\section{Introduction}
+
+The choice of activation function sets the family of functions a neural network can represent and shapes
+the optimisation landscape. ReLU~\citep{nair2010relu} and GELU~\citep{hendrycks2016gelu} dominate current
+practice; the former is cheap and sparse, the latter is smooth and has become the default in transformer
+architectures. Proposals for new activations are common, and the standard of evidence is empirical: a new
+function is judged by whether models trained with it reach better accuracy or lower loss than the same
+models trained with the incumbents~\citep{ramachandran2018swish}.
+
+This report applies that standard to a proposed activation, which we refer to as HeLU. It is defined as
+\begin{equation}
+  \helu(x) \;=\;
+  \begin{cases}
+    0.9\,x & \text{if } 0.5 \le x \le 0.6,\\
+    x      & \text{otherwise.}
+  \end{cases}
+  \label{eq:helu}
+\end{equation}
+The claim we set out to verify is that HeLU is \emph{superior} to ReLU and GELU, i.e.\ that networks
+trained with HeLU achieve better held-out performance under matched conditions. We fixed the
+following reading of the outcome before running the full experimental sweep: the hypothesis is supported if HeLU
+attains higher mean test accuracy (or lower test error) than both ReLU and GELU on the majority of tasks,
+with the difference significant at $p<0.05$ under Welch's $t$-test~\citep{welch1947} across seeds.
+
+\paragraph{Contributions.}
+\begin{enumerate}[nosep]
+  \item A controlled comparison of HeLU, ReLU, and GELU, plus an identity control, over eight experiments
+        spanning regression, classification, image benchmarks, and depth (Section~\ref{sec:setup}).
+  \item A negative result: HeLU is statistically indistinguishable from a linear network on every task
+        we tried and significantly worse than ReLU and GELU whenever the task is non-linear
+        (Section~\ref{sec:results}).
+  \item A mechanistic explanation. The notch is visited by roughly \notchHelu\% of pre-activations, and
+        a linear model fits the trained HeLU network almost perfectly (Section~\ref{sec:mechanism}).
+\end{enumerate}
+
+\section{The HeLU function}
+\label{sec:helu}
+
+Figure~\ref{fig:activation} plots the three activations and their derivatives. Several properties of
+\eqref{eq:helu} follow directly from the definition.
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=\linewidth]{fig_activation.pdf}
+  \caption{Left: ReLU, GELU, and HeLU on $[-2,2]$. Centre: HeLU near the notch; filled and open circles
+  mark the value taken and not taken at each edge. Right: derivatives. HeLU's derivative is 1 except
+  on $[0.5,0.6]$, where it is $0.9$.}
+  \label{fig:activation}
+\end{figure}
+
+\begin{itemize}[nosep]
+  \item \textbf{It is almost the identity.} $|\helu(x)-x|=0.1|x|\le 0.06$, and this deviation is
+        non-zero only on an interval of width $0.1$.
+  \item \textbf{It is discontinuous.} At $x=0.5$ the function jumps from $0.5$ to $0.45$; at $x=0.6$ it
+        jumps from $0.54$ to $0.6$. Neither ReLU nor GELU has a discontinuity.
+  \item \textbf{Its derivative is nearly constant.} $\helu'(x)=1$ outside the notch and $0.9$ inside;
+        automatic differentiation reproduces exactly this (Figure~\ref{fig:activation}, right). Gradients
+        therefore flow through HeLU layers essentially unchanged, as in a linear network.
+  \item \textbf{It is non-polynomial.} By the theorem of \citet{leshno1993multilayer}, a
+        single-hidden-layer network with HeLU activations is a universal approximator in the limit of
+        infinite width. The theorem, however, says nothing about how many units, how large the weights,
+        or how difficult the optimisation problem must be. For HeLU the non-linear budget of each unit is
+        a perturbation of amplitude at most $0.06$ confined to a band of width $0.1$, so expressing a
+        non-linear function of order-one amplitude requires either very many units whose
+        pre-activations land in the notch or very large output weights.
+\end{itemize}
+
+\noindent
+The natural null model for HeLU is therefore a \emph{deep linear network}, whose behaviour is well
+understood~\citep{saxe2014exact}: regardless of depth or width it can only represent a single affine map
+of its input. We include the identity activation as an explicit control so that this null can be tested
+directly rather than assumed.
+
+\section{Experimental setup}
+\label{sec:setup}
+
+All experiments use PyTorch~\citep{paszke2019pytorch} on CPU with the Adam
+optimiser~\citep{kingma2015adam}. Within each experiment the architecture, learning rate, batch size,
+number of steps or epochs, data ordering, and parameter-initialisation seed are identical across
+activations; the activation module is the only thing that changes. Hyper-parameters were fixed in
+advance to common defaults and were not tuned per activation. Results are reported as mean $\pm$
+sample standard deviation across seeds, and differences involving HeLU are tested with Welch's
+unequal-variance $t$-test.
+
+\begin{description}[nosep,leftmargin=1.5em]
+  \item[E1: Function shape.] Analytic evaluation of $f$ and $f'$ (Figure~\ref{fig:activation}).
+  \item[E2: 1-D regression.] An MLP with two hidden layers of 64 units maps $x\in[-2,2]$ to one of
+        four targets: $\sin 3x$, $|x|$, $x^2$, and the step $\mathbf 1[x>0]$. Training uses 512 points
+        with Gaussian noise ($\sigma=0.05$), 3000 full-batch Adam steps at learning rate $3\times10^{-3}$;
+        the test MSE is computed on 2000 noise-free points. 5 seeds.
+  \item[E3: 2-D classification.] Two-moons and two-spirals datasets (600 training points, 4000 test
+        points), same MLP with a two-way softmax output, 3000 steps. 5 seeds.
+  \item[E4: MNIST and Fashion-MNIST, MLP.] $784\!-\!256\!-\!256\!-\!10$ MLP, batch size 128, learning
+        rate $10^{-3}$, 5 epochs. 5 seeds each~\citep{lecun1998mnist,xiao2017fashion}.
+  \item[E5: Fashion-MNIST, CNN.] Two $3\times3$ convolutions (32 and 64 channels), each followed by the
+        activation and $2\times2$ max-pooling, then a 128-unit fully connected layer with the activation
+        and a linear classifier. Same optimiser settings, 5 epochs, 3 seeds.
+  \item[E6: Depth sweep.] Fashion-MNIST MLP with 128-unit hidden layers and 1, 2, 4, or 8 hidden
+        layers, 3 epochs, 3 seeds.
+  \item[E7: Linearity and notch occupancy.] For the Fashion-MNIST MLP we measure (i) the $R^2$ of the
+        best least-squares affine map from the 784-dimensional input to the network's 10 logits, computed
+        on 2000 test images, and (ii) the fraction of hidden pre-activations lying in $[0.5,0.6]$, both at
+        initialisation and after 3 epochs of training. 3 seeds.
+  \item[E8: Kernel cost.] Wall time of forward plus backward through the activation alone on a
+        $4\times10^6$-element tensor, 20 repetitions.
+\end{description}
+
+\section{Results}
+\label{sec:results}
+
+\subsection{Function approximation}
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=\linewidth]{fig_reg1d_fits.pdf}\\[4pt]
+  \includegraphics[width=\linewidth]{fig_reg1d_mse.pdf}
+  \caption{1-D regression (E2). Top: the seed-0 fit of each network against the target (dotted).
+  Bottom: test MSE on a log scale, bars are means over 5 seeds, dots are individual seeds. HeLU and the
+  linear control coincide almost exactly.}
+  \label{fig:reg1d}
+\end{figure}
+
+\begin{table}[t]
+  \centering\small
+  \caption{1-D regression test MSE (mean $\pm$ sd over 5 seeds). Lower is better.}
+  \label{tab:reg1d}
+  \input{generated/tab_reg1d.tex}
+\end{table}
+
+Figure~\ref{fig:reg1d} and Table~\ref{tab:reg1d} summarise E2. ReLU and GELU networks fit all four
+targets closely. The HeLU network produces, for every target, a straight line that is visually
+indistinguishable from the linear control's fit: the least-squares line through the data. Its test MSE
+is one to two orders of magnitude higher than that of ReLU or GELU. This is exactly what the null model
+predicts: the network has learned an affine map, and the notch has not been recruited to bend it.
+
+\subsection{Non-linearly separable classification}
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=\linewidth]{fig_cls2d.pdf}
+  \caption{Decision functions on two-moons (top) and two-spirals (bottom), E3. Colour is the predicted
+  probability of class 1; the black curve is the 0.5 level set. Titles give mean test accuracy over 5
+  seeds. HeLU produces a single straight decision boundary, as does the linear control.}
+  \label{fig:cls2d}
+\end{figure}
+
+\begin{table}[t]
+  \centering\small
+  \caption{2-D classification test accuracy (mean $\pm$ sd over 5 seeds) and Welch $p$-values for the
+  difference between HeLU and each non-linear baseline.}
+  \label{tab:cls2d}
+  \input{generated/tab_cls2d.tex}
+\end{table}
+
+Two-moons and two-spirals are the canonical tests of whether a model can learn a curved decision
+boundary. Figure~\ref{fig:cls2d} shows that ReLU and GELU do, reaching \accMoonsRelu\% and
+\accMoonsGelu\% on moons and \accSpiralsRelu\% and \accSpiralsGelu\% on spirals. HeLU reaches
+\accMoonsHelu\% and \accSpiralsHelu\%, matching the linear control (\accMoonsIdentity\% and
+\accSpiralsIdentity\%) to within seed noise; its decision boundary is a straight line
+(Table~\ref{tab:cls2d}). On spirals, where no linear classifier can do much better than chance, HeLU's
+accuracy is close to 50\%.
+
+\subsection{Image classification}
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=\linewidth]{fig_curves.pdf}
+  \caption{Training dynamics on the image benchmarks (E4, E5). Top: training loss, averaged over seeds
+  after a 25-step moving average. Bottom: test accuracy after each epoch, shaded bands are $\pm1$ sd
+  over seeds.}
+  \label{fig:curves}
+\end{figure}
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=\linewidth]{fig_summary.pdf}
+  \caption{Final test accuracy on the image benchmarks. Bars are means, whiskers are $\pm1$ sd, dots
+  are seeds. Note the truncated $y$-axes.}
+  \label{fig:summary}
+\end{figure}
+
+\begin{table}[t]
+  \centering\small
+  \caption{Image benchmarks: final test accuracy (mean $\pm$ sd; 5 seeds for the MLPs, 3 for the CNN)
+  and Welch $p$-values for HeLU against each other activation.}
+  \label{tab:image}
+  \resizebox{\linewidth}{!}{\input{generated/tab_image.tex}}
+\end{table}
+
+Table~\ref{tab:image} and Figures~\ref{fig:curves} and~\ref{fig:summary} report E4 and E5.
+On the MNIST MLP, ReLU and GELU reach \accMnistMlpRelu\% and \accMnistMlpGelu\% while HeLU reaches
+\accMnistMlpHelu\%, essentially the accuracy of a multinomial logistic regression, which is what a deep
+linear network trained with cross-entropy computes (linear control: \accMnistMlpIdentity\%). On the
+Fashion-MNIST MLP the gap is similar: \accFashionMlpRelu\% and \accFashionMlpGelu\% against
+\accFashionMlpHelu\% (linear: \accFashionMlpIdentity\%). In both cases the HeLU-versus-ReLU and
+HeLU-versus-GELU differences are significant at the $p<0.05$ level, whereas HeLU versus the linear
+control is not. The training-loss curves in Figure~\ref{fig:curves} show that HeLU does not optimise
+faster in early training either: its loss tracks the linear control's from the first steps and plateaus
+at the same, higher, level.
+
+The convolutional network is the exception. Here HeLU reaches \accFashionCnnHelu\%, comparable to ReLU
+(\accFashionCnnRelu\%) and GELU (\accFashionCnnGelu\%). But the linear control also reaches
+\accFashionCnnIdentity\%. The reason is that the architecture contains a second non-linearity, the
+$2\times2$ max-pooling after each convolution. Max-pooling alone is enough to make the convolutional
+network a competent non-linear classifier on this dataset, so the activation function's contribution is
+masked. The CNN result is therefore evidence about max-pooling, not about HeLU; it is the same result
+one obtains with no activation at all.
+
+\subsection{Depth}
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=0.5\linewidth]{fig_depth.pdf}
+  \caption{Fashion-MNIST MLP test accuracy versus number of hidden layers (E6), 3 epochs, 3 seeds.}
+  \label{fig:depth}
+\end{figure}
+
+\begin{table}[t]
+  \centering\small
+  \caption{Depth sweep on Fashion-MNIST (mean $\pm$ sd over 3 seeds).}
+  \label{tab:depth}
+  \input{generated/tab_depth.tex}
+\end{table}
+
+If the notch were being used as a non-linearity, stacking more HeLU layers would compound it and
+accuracy would rise with depth, as it does for ReLU and GELU up to the point where optimisation becomes
+harder. Figure~\ref{fig:depth} and Table~\ref{tab:depth} show no such trend: HeLU's accuracy is flat in
+depth and coincides with the linear control at every depth. A product of affine maps is an affine map,
+and adding HeLU layers does not change that in practice.
+
+\subsection{Mechanism: HeLU networks are linear}
+\label{sec:mechanism}
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=\linewidth]{fig_linearity.pdf}
+  \caption{E7. Left: $1-R^2$ of the best affine fit to each trained network's logits (log scale; lower
+  means more linear). Right: percentage of HeLU pre-activations that fall inside the notch, per hidden
+  layer, before and after training.}
+  \label{fig:linearity}
+\end{figure}
+
+\begin{table}[t]
+  \centering\small
+  \caption{Linearity of trained Fashion-MNIST MLPs and notch occupancy (means over 3 seeds). The
+  notch-occupancy column for ReLU, GELU, and Identity reports the fraction of \emph{their} pre-activations
+  that happen to fall in $[0.5,0.6]$ and is included for reference only.}
+  \label{tab:linearity}
+  \input{generated/tab_linearity.tex}
+\end{table}
+
+Two direct measurements explain the results above (Figure~\ref{fig:linearity}, Table~\ref{tab:linearity}).
+First, an affine function of the raw pixels explains an $R^2$ of \rTwoHelu{} of the variance in a
+trained HeLU network's logits, against \rTwoRelu{} for ReLU. The HeLU network is linear to within
+measurement precision. Second, only about \notchHelu\% of hidden pre-activations lie inside the notch
+after training, and training does not increase this fraction relative to initialisation. Gradient
+descent has no incentive to move pre-activations into the notch: doing so changes the unit's output by
+at most $0.06$ and its gradient by 10\%, which is too small a lever to be worth the loss incurred on the
+way. The notch is not so much unhelpful as unused.
+
+\subsection{Computational cost}
+
+\begin{table}[t]
+  \centering\small
+  \caption{Cost. Rows 1--3: mean wall-clock seconds per training epoch (4 CPU threads). Last row:
+  forward plus backward time of the activation kernel alone.}
+  \label{tab:time}
+  \input{generated/tab_time.tex}
+\end{table}
+
+Table~\ref{tab:time} shows that HeLU is not cheaper either. Implemented as a masked \texttt{where}, its
+kernel costs more than ReLU's and about the same as GELU's, and end-to-end epoch time is dominated by the
+linear layers in any case.
+
+\section{Discussion}
+
+\paragraph{Why HeLU fails.} A useful activation function must do two things: give the network a
+non-linear family of functions to search over, and make that family reachable by gradient descent.
+HeLU does the first only in the technical sense of \citet{leshno1993multilayer}, and the second not at
+all. Its total non-linear content, a $10\%$ dip on a band of width $0.1$, is an order of magnitude
+smaller than the scale of typical pre-activations at initialisation~\citep{he2015delving}, and gradient
+descent finds nothing to gain by concentrating pre-activations there. The result is a network that is,
+for all practical purposes, linear, and it performs exactly as a linear network does: adequately on
+MNIST, where a linear classifier is already at 92\%, and poorly everywhere a curved boundary is required.
+
+\paragraph{The CNN caveat.} The Fashion-MNIST CNN result deserves emphasis because it is the kind of
+evidence that could be mistaken for support. HeLU ``matches ReLU'' on this benchmark only because
+max-pooling makes the activation function nearly irrelevant, and the identity control demonstrates this
+by matching too. Any evaluation of a new activation should include a no-activation control for this
+reason.
+
+\paragraph{What would change the conclusion.} We tried the notch as specified. Widening the notch, moving
+it to straddle zero, or deepening the dip would each increase the available non-linearity and might close
+the gap, but such a function would no longer be HeLU as defined in \eqref{eq:helu}. We also did not tune
+learning rates per activation; given that HeLU's training curves coincide with the linear control's from
+the first steps, we do not expect tuning to change the ordering.
+
+\paragraph{Limitations.} All experiments are small-scale and CPU-bound: two image datasets of
+$28\times28$ greyscale images, networks of at most a few hundred thousand parameters, at most 5 epochs,
+and 3 to 5 seeds per configuration. The CIFAR-10 download was blocked in our environment. Larger-scale
+experiments could in principle behave differently, but the mechanism identified in
+Section~\ref{sec:mechanism} does not depend on scale: pre-activations avoid the notch because the
+gradient signal for entering it is negligible, and that is a property of the function, not of the
+dataset.
+
+\section{Conclusion}
+
+We set out to verify that HeLU, the identity function with a $0.9\times$ notch on $[0.5,0.6]$, is a
+superior activation to ReLU and GELU. Under matched conditions across regression, two-dimensional
+classification, MNIST, and Fashion-MNIST, it is not. HeLU networks are statistically indistinguishable
+from purely linear networks and significantly worse than ReLU and GELU networks on every task that
+requires a non-linear solution. The mechanism is simple: the notch is too small and too rarely visited to
+function as a non-linearity, so the network stays linear. The only benchmark on which HeLU matches the
+baselines is one in which max-pooling supplies the non-linearity, and a network with no activation at all
+matches them there too.
+
+\section*{Reproducibility}
+
+The code, raw JSON results for every run, figures, and this document are in the
+\texttt{helu-activation-research/} directory of the repository. \texttt{python run\_all.py} regenerates
+the results (about 35 minutes on four CPU cores), \texttt{python make\_figures.py} regenerates every
+figure and table in this paper from them, and \texttt{make} in \texttt{paper/} rebuilds the PDF.
+
+\bibliographystyle{plainnat}
+\bibliography{refs}
+
+\end{document}
