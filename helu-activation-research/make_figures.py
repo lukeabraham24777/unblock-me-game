@@ -335,24 +335,35 @@ def fig_variants():
         ("img", "fashion"): {a: np.mean([r["epoch_test_acc"][-1] for r in fm["runs"][a]]) for a in ACT_ORDER},
     }
     panels = [
-        (("reg", "sin(3x)"), "$\\sin 3x$ test MSE", lambda r: r["reg1d"]["sin(3x)"], True),
-        (("reg", "x^2"), "$x^2$ test MSE", lambda r: r["reg1d"]["x^2"], True),
-        (("cls", "moons"), "moons accuracy", lambda r: r["cls2d"]["moons"], False),
-        (("cls", "spirals"), "spirals accuracy", lambda r: r["cls2d"]["spirals"], False),
-        (("img", "fashion"), "Fashion-MNIST accuracy", lambda r: r["fashion_mlp"], False),
+        (("reg", "sin(3x)"), "$\\sin 3x$ MSE", lambda r: r["reg1d"]["sin(3x)"], True),
+        (("reg", "x^2"), "$x^2$ MSE", lambda r: r["reg1d"]["x^2"], True),
+        (("cls", "moons"), "moons acc.", lambda r: r["cls2d"]["moons"], False),
+        (("cls", "spirals"), "spirals acc.", lambda r: r["cls2d"]["spirals"], False),
+        (("img", "fashion"), "Fashion-MNIST acc.", lambda r: r["fashion_mlp"], False),
     ]
     fig, axes = plt.subplots(1, len(panels), figsize=(7.2, 4.6), sharey=True)
     ypos = np.arange(len(vs))[::-1]
     ref_style = {"relu": ("-", COLOR["relu"]), "gelu": ("-", COLOR["gelu"]), "identity": ("--", COLOR["identity"])}
     for ax, (key, title, get, logx) in zip(axes, panels):
+        allv = []
         for y, v in zip(ypos, vs):
             vals = np.array(get(d["results"][v]))
-            ax.barh(y, vals.mean(), color=variant_color(v), height=0.7, lw=0)
-            ax.scatter(vals, np.full(len(vals), y), s=6, color=INK, zorder=3)
+            allv.extend(vals.tolist())
+            if logx:   # bars are fine on a log axis anchored at the axis minimum
+                ax.barh(y, vals.mean(), color=variant_color(v), height=0.7, lw=0)
+                ax.scatter(vals, np.full(len(vals), y), s=6, color=INK, zorder=3)
+            else:      # dot plot: mean as a large marker, seeds as small dots; axis is truncated
+                ax.plot([vals.min(), vals.max()], [y, y], color=variant_color(v), lw=1.2, solid_capstyle="round")
+                ax.plot(vals.mean(), y, "o", ms=5, color=variant_color(v), mec="white", mew=0.6, zorder=4)
+                ax.scatter(vals, np.full(len(vals), y), s=5, color=INK, zorder=3)
         for a, (ls, c) in ref_style.items():
             ax.axvline(refs[key][a], ls=ls, color=c, lw=1.1, zorder=2)
         if logx:
             ax.set_xscale("log")
+        else:
+            lo = min(allv + list(refs[key].values())); hi = max(allv + list(refs[key].values()))
+            pad = 0.06 * (hi - lo)
+            ax.set_xlim(lo - pad, hi + pad)
         ax.set_title(title, fontsize=8.5)
         ax.grid(axis="x")
         ax.set_axisbelow(True)
@@ -375,7 +386,7 @@ def table_variants():
                  f"{100 * np.mean(r['cls2d']['moons']):.1f}", f"{100 * np.mean(r['cls2d']['spirals']):.1f}",
                  f"{100 * np.mean(r['fashion_mlp']):.2f} $\\pm$ {100 * np.std(r['fashion_mlp'], ddof=1):.2f}"]
         lo, hi, sc = HELU_VARIANTS[v]
-        hi_s = "$\\infty$" if hi == float("inf") else f"{hi:g}"
+        hi_s = "\\infty" if hi == float("inf") else f"{hi:g}"
         rows.append(f"$[{lo:g},\\,{hi_s}]$ & {sc:g} & " + " & ".join(cells) + " \\\\")
     reg, cls, fm = load("reg1d"), load("cls2d"), load("fashion_mlp")
     for a in ["relu", "gelu", "identity"]:
@@ -399,8 +410,7 @@ def table_variants():
     hi_s = "\\infty" if hi == float("inf") else f"{hi:g}"
     m += [f"\\newcommand{{\\bestVariantSpirals}}{{$[{lo:g},{hi_s}]\\times{sc:g}$}}",
           f"\\newcommand{{\\bestVariantSpiralsAcc}}{{{100 * np.mean(d['results'][best_s]['cls2d']['spirals']):.1f}}}"]
-    with open(GEN / "macros.tex", "a") as f:
-        f.write("\n".join(m) + "\n")
+    (GEN / "macros_variants.tex").write_text("\n".join(m) + "\n")
     print("wrote tab_variants")
 
 
@@ -411,7 +421,7 @@ def table_variant_occupancy():
     for v in d["variants"]:
         rs = d["results"][v]
         lo, hi, sc = HELU_VARIANTS[v]
-        hi_s = "$\\infty$" if hi == float("inf") else f"{hi:g}"
+        hi_s = "\\infty" if hi == float("inf") else f"{hi:g}"
         acc = 100 * np.mean([r["test_acc"] for r in rs])
         bi = 100 * np.mean([np.mean(r["band_frac_init"]) for r in rs])
         bt = 100 * np.mean([np.mean(r["band_frac_trained"]) for r in rs])

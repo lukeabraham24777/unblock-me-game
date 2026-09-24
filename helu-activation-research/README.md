@@ -56,3 +56,5 @@ Experiments (all CPU, seeded):
    scale 0.8/0.5/0.2, or widened to `[0.5,1]`, `[0.5,2]`, `[0.5,inf)`), each run on `sin(3x)`, `x^2`,
    moons, spirals and the Fashion-MNIST MLP. See `HELU_VARIANTS` in `helu_research/activations.py`.
    Run alone with `python run_all.py variants`.
+10. `variant_occupancy` – band occupancy and linear-fit `R^2` on Fashion-MNIST for the original notch
+    and the three widened variants (explains why only the half-line variant becomes non-linear).

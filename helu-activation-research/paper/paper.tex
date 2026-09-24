@@ -16,6 +16,7 @@
 
 \graphicspath{{../figures/}}
 \input{generated/macros.tex}
+\IfFileExists{generated/macros_variants.tex}{\input{generated/macros_variants.tex}}{}
 
 \newtheorem{proposition}{Proposition}
 \newcommand{\helu}{\mathrm{HeLU}}
@@ -353,9 +354,11 @@ linear layers, so the difference is small in practice, but there is no efficienc
   \centering
   \includegraphics[width=\linewidth]{fig_variants.pdf}
   \caption{E9: fifteen variants of the HeLU notch, written as $[\text{lo},\text{hi}]\times\text{scale}$.
-  The first row is the original HeLU. Bars are means over 3 seeds, dots are seeds, and the vertical
-  lines are the ReLU, GELU, and linear-control means from the main experiments. Colour groups variants
-  by notch position; yellow marks the widened notches.}
+  The first row is the original HeLU. MSE panels (log scale): bars are means over 3 seeds. Accuracy
+  panels (truncated axes): the large marker is the mean and the short line spans the seeds. Small
+  black dots are individual seeds, and the vertical lines are the ReLU, GELU, and linear-control means
+  from the main experiments. Colour groups variants by notch position; yellow marks the widened
+  notches.}
   \label{fig:variants}
 \end{figure}
 
@@ -367,7 +370,46 @@ linear layers, so the difference is small in practice, but there is no efficienc
   \resizebox{\linewidth}{!}{\input{generated/tab_variants.tex}}
 \end{table}
 
-%%VARIANTS_PROSE%%
+\begin{table}[t]
+  \centering\small
+  \caption{Band occupancy and linearity for the original notch and the three widened variants
+  (Fashion-MNIST MLP, 3 epochs, means over 3 seeds). ``\% pre-act.\ in band'' is the fraction of hidden
+  pre-activations inside $[\text{lo},\text{hi}]$, averaged over the two hidden layers.}
+  \label{tab:variant-occupancy}
+  \input{generated/tab_variant_occupancy.tex}
+\end{table}
+
+A natural objection to the results so far is that the constants in \eqref{eq:helu} are arbitrary and a
+different notch might work. E9 tests this directly (Figure~\ref{fig:variants},
+Table~\ref{tab:variants}). Three findings stand out.
+
+\paragraph{Moving the notch does nothing.} Placing the notch at $[0.1,0.2]$ or straddling zero at
+$[-0.05,0.05]$ gives, for every scale, results indistinguishable from the linear control on all five
+tasks. The original position at $[0.5,0.6]$ is, if anything, the best of the three narrow positions,
+because a small fraction of pre-activations naturally land there at initialisation.
+
+\paragraph{Deepening the notch helps only on toy problems.} Lowering the scale from $0.9$ to $0.2$ at
+$[0.5,0.6]$ reduces the $\sin 3x$ MSE from $0.34$ to $0.12$ and raises spirals accuracy from $64\%$ to
+$77\%$, but ReLU and GELU are at $3\times10^{-4}$ and $99.6\%$ on the same tasks. On Fashion-MNIST none
+of the twelve narrow-notch variants moves more than $0.1$ percentage points from the linear control's
+$83.3\%$. A deeper notch makes each jump larger but does not make the network more inclined to use it.
+
+\paragraph{Widening the notch changes the character of the function.} The three variants that widen the
+band at scale $0.2$ behave differently from all the others. On the toy problems they close most of the
+gap to ReLU: $[0.5,1.0]\times0.2$ reaches $98.4\%$ on moons and $97.9\%$ on spirals and fits $\sin 3x$
+with MSE $0.004$. On Fashion-MNIST, however, the bounded bands still fail: $[0.5,1.0]$ is at the linear
+level and $[0.5,2.0]$ gains only half a point. Only the unbounded variant $[0.5,\infty)\times0.2$, which
+is no longer a notch at all but a two-slope piecewise-linear function with a downward jump at $0.5$,
+reaches \bestVariantFashionAcc\%; that is a real non-linearity, though still $1.8$ points below ReLU.
+Table~\ref{tab:variant-occupancy} shows why. After training, only $13.5\%$ of the $[0.5,1.0]$ variant's
+pre-activations sit inside its band and the network is still linear to $R^2=0.9992$; the $[0.5,2.0]$
+band is occupied by $31\%$ and $R^2$ drops to $0.992$; the half-line $[0.5,\infty)$ is occupied by
+$55\%$ of units and $R^2$ falls to $0.973$, comparable to the $0.957$ of a ReLU network. A bounded
+band, however deep, is an ``identity plus local dent'' whose effect averages out over a unit's input
+distribution unless the network concentrates that distribution inside the band, and gradient descent
+on a high-dimensional problem does not do so. A function that behaves differently on an entire half-line
+is what forces every unit to be non-linear, and that is exactly the property that ReLU and GELU have
+and HeLU lacks.
 }{\emph{(Variant results pending: run \texttt{python run\_all.py variants} and rebuild.)}}
 
 \section{Discussion}
@@ -389,11 +431,13 @@ only because max-pooling makes the activation function nearly irrelevant, and th
 demonstrates this by landing at the same accuracy. Any evaluation of a new activation should include a
 no-activation control for this reason.
 
-\paragraph{What would change the conclusion.} We tried the notch as specified. Widening the notch, moving
-it to straddle zero, or deepening the dip would each increase the available non-linearity and might close
-the gap, but such a function would no longer be HeLU as defined in \eqref{eq:helu}. We also did not tune
-learning rates per activation; given that HeLU's training curves coincide with the linear control's from
-the first steps, we do not expect tuning to change the ordering.
+\paragraph{What would change the conclusion.} Section~\ref{sec:variants} already answers the obvious
+follow-ups. Moving the notch does nothing; deepening it helps only on one- and two-dimensional toy
+problems; and the only modification that produces a non-linear network on Fashion-MNIST is to extend
+the band to the whole half-line $[0.5,\infty)$, at which point the function is a two-slope piecewise
+linear map with a jump, not a notch, and it still trails ReLU by about two points. We did not tune
+learning rates per activation; given that HeLU's training curves coincide with the linear control's
+from the first steps, we do not expect tuning to change the ordering.
 
 \paragraph{Limitations.} All experiments are small-scale and CPU-bound: two image datasets of
 $28\times28$ greyscale images, networks of at most a few hundred thousand parameters, at most 5 epochs,
@@ -412,15 +456,18 @@ from purely linear networks and significantly worse than ReLU and GELU networks 
 requires a non-linear solution. The mechanism is simple: the notch is too small and too rarely visited to
 function as a non-linearity, so the network stays linear. The only benchmark on which HeLU comes close
 to the baselines is one in which max-pooling supplies the non-linearity, and a network with no
-activation at all comes equally close there.
+activation at all comes equally close there. An ablation over fifteen variants confirms that the
+problem is the notch design rather than its constants: no bounded notch, at any position or depth we
+tried, produces a non-linear network on Fashion-MNIST, and the one variant that does is no longer a
+notch.
 
 \section*{Reproducibility}
 
-The code, raw JSON results for every run, figures, and this document are in the
-\path{helu-activation-research/} directory of the repository. Running \texttt{run\_all.py}
-regenerates the results (about 40 minutes on four CPU cores for the main experiments, plus about
-30 minutes for the variants), \texttt{make\_figures.py} regenerates every figure and table in this
-paper from them, and \texttt{make} in the \texttt{paper/} directory rebuilds the PDF.
+The code, raw JSON results for every run, figures, and this document are in the repository directory
+\path{helu-activation-research/}. Running \texttt{run\_all.py} regenerates the results (about
+40 minutes on four CPU cores for the main experiments, plus about 30 minutes for the variants),
+\texttt{make\_figures.py} regenerates every figure and table in this paper from them, and
+\texttt{make} in the \texttt{paper/} directory rebuilds the PDF.
 
 \bibliographystyle{plainnat}
 \bibliography{refs}
