@@ -14,7 +14,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 from matplotlib.lines import Line2D  # noqa: E402
 
-from helu_research.activations import ACT_LABEL, ACT_ORDER  # noqa: E402
+from helu_research.activations import ACT_LABEL, ACT_ORDER, HELU_VARIANTS, variant_label  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent
 RES, FIG, GEN = ROOT / "results", ROOT / "figures", ROOT / "paper" / "generated"
@@ -311,6 +311,98 @@ def fig_linearity():
     save(fig, "fig_linearity")
 
 
+
+# ---------------------------------------------------------------- Figure 8: HeLU variants
+GROUP_COLOR = {(0.5, 0.6): "#2a78d6", (0.1, 0.2): "#eb6834", (-0.05, 0.05): "#1baf7a"}
+WIDE_COLOR = "#eda100"
+
+
+def variant_color(v):
+    lo, hi, _ = HELU_VARIANTS[v]
+    return GROUP_COLOR.get((lo, hi), WIDE_COLOR)
+
+
+def fig_variants():
+    d = load("variants")
+    vs = d["variants"]
+    reg, cls, fm = load("reg1d"), load("cls2d"), load("fashion_mlp")
+    refs = {  # baseline means from the main experiments
+        ("reg", "sin(3x)"): {a: np.mean(reg["results"]["sin(3x)"][a]) for a in ACT_ORDER},
+        ("reg", "x^2"): {a: np.mean(reg["results"]["x^2"][a]) for a in ACT_ORDER},
+        ("cls", "moons"): {a: np.mean(cls["results"]["moons"][a]) for a in ACT_ORDER},
+        ("cls", "spirals"): {a: np.mean(cls["results"]["spirals"][a]) for a in ACT_ORDER},
+        ("img", "fashion"): {a: np.mean([r["epoch_test_acc"][-1] for r in fm["runs"][a]]) for a in ACT_ORDER},
+    }
+    panels = [
+        (("reg", "sin(3x)"), "$\\sin 3x$ test MSE", lambda r: r["reg1d"]["sin(3x)"], True),
+        (("reg", "x^2"), "$x^2$ test MSE", lambda r: r["reg1d"]["x^2"], True),
+        (("cls", "moons"), "moons accuracy", lambda r: r["cls2d"]["moons"], False),
+        (("cls", "spirals"), "spirals accuracy", lambda r: r["cls2d"]["spirals"], False),
+        (("img", "fashion"), "Fashion-MNIST accuracy", lambda r: r["fashion_mlp"], False),
+    ]
+    fig, axes = plt.subplots(1, len(panels), figsize=(7.2, 4.6), sharey=True)
+    ypos = np.arange(len(vs))[::-1]
+    ref_style = {"relu": ("-", COLOR["relu"]), "gelu": ("-", COLOR["gelu"]), "identity": ("--", COLOR["identity"])}
+    for ax, (key, title, get, logx) in zip(axes, panels):
+        for y, v in zip(ypos, vs):
+            vals = np.array(get(d["results"][v]))
+            ax.barh(y, vals.mean(), color=variant_color(v), height=0.7, lw=0)
+            ax.scatter(vals, np.full(len(vals), y), s=6, color=INK, zorder=3)
+        for a, (ls, c) in ref_style.items():
+            ax.axvline(refs[key][a], ls=ls, color=c, lw=1.1, zorder=2)
+        if logx:
+            ax.set_xscale("log")
+        ax.set_title(title, fontsize=8.5)
+        ax.grid(axis="x")
+        ax.set_axisbelow(True)
+        ax.tick_params(axis="y", length=0)
+    axes[0].set_yticks(ypos)
+    axes[0].set_yticklabels([variant_label(v) for v in vs], fontsize=7.5)
+    handles = [Line2D([0], [0], color=c, ls=ls, lw=1.4, label=f"{ACT_LABEL[a].split(' ')[0]} baseline")
+               for a, (ls, c) in ref_style.items()]
+    fig.legend(handles=handles, loc="lower center", ncol=3, bbox_to_anchor=(0.5, -0.02))
+    fig.tight_layout(w_pad=0.6, rect=(0, 0.03, 1, 1))
+    save(fig, "fig_variants")
+
+
+def table_variants():
+    d = load("variants")
+    rows = []
+    for v in d["variants"]:
+        r = d["results"][v]
+        cells = [f"{np.mean(r['reg1d']['sin(3x)']):.3f}", f"{np.mean(r['reg1d']['x^2']):.3f}",
+                 f"{100 * np.mean(r['cls2d']['moons']):.1f}", f"{100 * np.mean(r['cls2d']['spirals']):.1f}",
+                 f"{100 * np.mean(r['fashion_mlp']):.2f} $\\pm$ {100 * np.std(r['fashion_mlp'], ddof=1):.2f}"]
+        lo, hi, sc = HELU_VARIANTS[v]
+        hi_s = "$\\infty$" if hi == float("inf") else f"{hi:g}"
+        rows.append(f"$[{lo:g},\\,{hi_s}]$ & {sc:g} & " + " & ".join(cells) + " \\\\")
+    reg, cls, fm = load("reg1d"), load("cls2d"), load("fashion_mlp")
+    for a in ["relu", "gelu", "identity"]:
+        cells = [f"{np.mean(reg['results']['sin(3x)'][a]):.4f}", f"{np.mean(reg['results']['x^2'][a]):.4f}",
+                 f"{100 * np.mean(cls['results']['moons'][a]):.1f}", f"{100 * np.mean(cls['results']['spirals'][a]):.1f}",
+                 f"{100 * np.mean([r['epoch_test_acc'][-1] for r in fm['runs'][a]]):.2f}"]
+        rows.append(f"\\multicolumn{{2}}{{l}}{{{ACT_LABEL[a]}}} & " + " & ".join(cells) + " \\\\")
+    rows.insert(len(d["variants"]), "\\midrule")
+    (GEN / "tab_variants.tex").write_text(
+        "\\begin{tabular}{llccccc}\n\\toprule\n"
+        "Notch & Scale & $\\sin 3x$ MSE & $x^2$ MSE & Moons (\\%) & Spirals (\\%) & Fashion-MNIST (\\%) \\\\\n\\midrule\n"
+        + "\n".join(rows) + "\n\\bottomrule\n\\end{tabular}\n")
+    # macros: best variant on each task
+    best_f = max(d["variants"], key=lambda v: np.mean(d["results"][v]["fashion_mlp"]))
+    best_s = max(d["variants"], key=lambda v: np.mean(d["results"][v]["cls2d"]["spirals"]))
+    lo, hi, sc = HELU_VARIANTS[best_f]
+    hi_s = "\\infty" if hi == float("inf") else f"{hi:g}"
+    m = [f"\\newcommand{{\\bestVariantFashion}}{{$[{lo:g},{hi_s}]\\times{sc:g}$}}",
+         f"\\newcommand{{\\bestVariantFashionAcc}}{{{100 * np.mean(d['results'][best_f]['fashion_mlp']):.2f}}}"]
+    lo, hi, sc = HELU_VARIANTS[best_s]
+    hi_s = "\\infty" if hi == float("inf") else f"{hi:g}"
+    m += [f"\\newcommand{{\\bestVariantSpirals}}{{$[{lo:g},{hi_s}]\\times{sc:g}$}}",
+          f"\\newcommand{{\\bestVariantSpiralsAcc}}{{{100 * np.mean(d['results'][best_s]['cls2d']['spirals']):.1f}}}"]
+    with open(GEN / "macros.tex", "a") as f:
+        f.write("\n".join(m) + "\n")
+    print("wrote tab_variants")
+
+
 # ---------------------------------------------------------------- LaTeX tables
 def tables():
     out = []
@@ -424,3 +516,6 @@ if __name__ == "__main__":
     fig_depth()
     fig_linearity()
     tables()
+    if (RES / "variants.json").exists():
+        fig_variants()
+        table_variants()

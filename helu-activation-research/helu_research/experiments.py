@@ -352,3 +352,69 @@ def run_microbench(n: int = 4_000_000, reps: int = 20) -> dict:
             ts.append(time.perf_counter() - t0)
         out["results"][a] = {"mean_ms": 1e3 * float(np.mean(ts)), "std_ms": 1e3 * float(np.std(ts))}
     return out
+
+
+# --------------------------------------------------------------------------
+# Experiment 9: HeLU variants (notch position / depth / width ablation)
+# --------------------------------------------------------------------------
+def _train_reg1d_one(act: str, target: str, seed: int, steps: int, hidden: int, depth: int, lr: float) -> float:
+    set_seed(seed)
+    tf = TARGETS[target]
+    xtr = torch.rand(512, 1) * 4 - 2
+    ytr = tf(xtr) + 0.05 * torch.randn_like(xtr)
+    xte = torch.rand(2000, 1) * 4 - 2
+    model = MLP(1, hidden, 1, depth, act)
+    opt = torch.optim.Adam(model.parameters(), lr=lr)
+    for _ in range(steps):
+        loss = F.mse_loss(model(xtr), ytr)
+        opt.zero_grad(set_to_none=True)
+        loss.backward()
+        opt.step()
+    with torch.no_grad():
+        return F.mse_loss(model(xte), tf(xte)).item()
+
+
+def _train_cls2d_one(act: str, dname: str, seed: int, steps: int, hidden: int, depth: int, lr: float) -> float:
+    set_seed(seed)
+    Xtr, ytr = make_2d(dname, 600, seed)
+    Xte, yte = make_2d(dname, 4000, 1000 + seed)
+    Xtr_t, ytr_t = torch.from_numpy(Xtr), torch.from_numpy(ytr)
+    model = MLP(2, hidden, 2, depth, act)
+    opt = torch.optim.Adam(model.parameters(), lr=lr)
+    for _ in range(steps):
+        loss = F.cross_entropy(model(Xtr_t), ytr_t)
+        opt.zero_grad(set_to_none=True)
+        loss.backward()
+        opt.step()
+    with torch.no_grad():
+        pred = model(torch.from_numpy(Xte)).argmax(1).numpy()
+    return float((pred == yte).mean())
+
+
+def run_variants(root: str, variants: list[str] | None = None, seeds=(0, 1, 2), steps: int = 3000,
+                 epochs: int = 3, hidden: int = 64, depth: int = 2, lr: float = 3e-3,
+                 image_hidden: int = 256, image_lr: float = 1e-3) -> dict:
+    """Same protocols as E2 / E3 / E4 (Fashion-MNIST MLP) for every HeLU variant."""
+    from .activations import HELU_VARIANTS
+
+    variants = variants or list(HELU_VARIANTS)
+    out: dict = {"variants": variants, "params": {v: HELU_VARIANTS[v] for v in variants}, "seeds": list(seeds),
+                 "reg_targets": ["sin(3x)", "x^2"], "cls_datasets": ["moons", "spirals"], "epochs": epochs,
+                 "results": {}}
+    for v in variants:
+        r: dict = {"reg1d": {}, "cls2d": {}, "fashion_mlp": []}
+        for t in out["reg_targets"]:
+            r["reg1d"][t] = [_train_reg1d_one(v, t, s, steps, hidden, depth, lr) for s in seeds]
+        for dname in out["cls_datasets"]:
+            r["cls2d"][dname] = [_train_cls2d_one(v, dname, s, steps, hidden, depth, lr) for s in seeds]
+        for s in seeds:
+            set_seed(s)
+            tr, te = loaders_from_cache("fashion", root, 128, s)
+            model = MLP(28 * 28, image_hidden, 10, 2, v)
+            hist = train_classifier(model, tr, te, epochs, image_lr, log_every=10**9)
+            r["fashion_mlp"].append(hist.epoch_test_acc[-1])
+        out["results"][v] = r
+        print(f"  [variant {v:18s}] sin MSE={np.mean(r['reg1d']['sin(3x)']):.4f} "
+              f"x^2 MSE={np.mean(r['reg1d']['x^2']):.4f} moons={np.mean(r['cls2d']['moons']):.4f} "
+              f"spirals={np.mean(r['cls2d']['spirals']):.4f} fashion={np.mean(r['fashion_mlp']):.4f}", flush=True)
+    return out

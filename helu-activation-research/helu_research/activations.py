@@ -21,15 +21,56 @@ HELU_HI = 0.6
 HELU_SCALE = 0.9
 
 
-def helu(x: torch.Tensor) -> torch.Tensor:
-    """Functional HeLU. Autograd yields d/dx = 0.9 inside the notch, 1 elsewhere."""
-    in_notch = (x >= HELU_LO) & (x <= HELU_HI)
-    return torch.where(in_notch, HELU_SCALE * x, x)
+def helu(x: torch.Tensor, lo: float = HELU_LO, hi: float = HELU_HI, scale: float = HELU_SCALE) -> torch.Tensor:
+    """Functional HeLU. Autograd yields d/dx = `scale` inside the notch, 1 elsewhere.
+
+    The defaults give the original definition; other (lo, hi, scale) give the
+    variants studied in the ablation (`experiments.run_variants`)."""
+    in_notch = (x >= lo) & (x <= hi)
+    return torch.where(in_notch, scale * x, x)
 
 
 class HeLU(nn.Module):
+    def __init__(self, lo: float = HELU_LO, hi: float = HELU_HI, scale: float = HELU_SCALE):
+        super().__init__()
+        self.lo, self.hi, self.scale = float(lo), float(hi), float(scale)
+
     def forward(self, x: torch.Tensor) -> torch.Tensor:  # noqa: D401
-        return helu(x)
+        return helu(x, self.lo, self.hi, self.scale)
+
+    def extra_repr(self) -> str:
+        return f"notch=[{self.lo}, {self.hi}], scale={self.scale}"
+
+
+# Variants of the notch for the ablation. Name -> (lo, hi, scale).
+# The original is "helu"; the others move the notch, deepen it, or widen it.
+HELU_VARIANTS: dict[str, tuple[float, float, float]] = {
+    # original position, deeper notches
+    "n0.5-0.6_s0.9": (0.5, 0.6, 0.9),
+    "n0.5-0.6_s0.8": (0.5, 0.6, 0.8),
+    "n0.5-0.6_s0.5": (0.5, 0.6, 0.5),
+    "n0.5-0.6_s0.2": (0.5, 0.6, 0.2),
+    # notch moved to [0.1, 0.2]
+    "n0.1-0.2_s0.9": (0.1, 0.2, 0.9),
+    "n0.1-0.2_s0.8": (0.1, 0.2, 0.8),
+    "n0.1-0.2_s0.5": (0.1, 0.2, 0.5),
+    "n0.1-0.2_s0.2": (0.1, 0.2, 0.2),
+    # notch straddling zero
+    "n-0.05-0.05_s0.9": (-0.05, 0.05, 0.9),
+    "n-0.05-0.05_s0.8": (-0.05, 0.05, 0.8),
+    "n-0.05-0.05_s0.5": (-0.05, 0.05, 0.5),
+    "n-0.05-0.05_s0.2": (-0.05, 0.05, 0.2),
+    # wider notches at scale 0.2, starting at 0.5
+    "n0.5-1.0_s0.2": (0.5, 1.0, 0.2),
+    "n0.5-2.0_s0.2": (0.5, 2.0, 0.2),
+    "n0.5-inf_s0.2": (0.5, float("inf"), 0.2),
+}
+
+
+def variant_label(name: str) -> str:
+    lo, hi, s = HELU_VARIANTS[name]
+    hi_s = "∞" if hi == float("inf") else f"{hi:g}"
+    return f"[{lo:g}, {hi_s}] × {s:g}"
 
 
 class Identity(nn.Module):
@@ -53,6 +94,8 @@ ACT_LABEL = {"relu": "ReLU", "gelu": "GELU", "helu": "HeLU", "identity": "Identi
 
 
 def make_activation(name: str) -> nn.Module:
+    if name in HELU_VARIANTS:
+        return HeLU(*HELU_VARIANTS[name])
     try:
         return ACTIVATIONS[name]()
     except KeyError as e:  # pragma: no cover
@@ -61,6 +104,9 @@ def make_activation(name: str) -> nn.Module:
 
 def activation_fn(name: str):
     """Return a plain callable for numpy-free evaluation in torch."""
+    if name in HELU_VARIANTS:
+        lo, hi, s = HELU_VARIANTS[name]
+        return lambda t: helu(t, lo, hi, s)
     return {
         "relu": F.relu,
         "gelu": F.gelu,

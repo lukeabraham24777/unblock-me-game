@@ -52,3 +52,7 @@ Experiments (all CPU, seeded):
 7. `linearity` – how linear is each trained network? (`R^2` of a least-squares linear fit) and
    what fraction of HeLU pre-activations fall inside the notch.
 8. `microbench` – forward+backward kernel time of the activation alone.
+9. `variants` – 15 variants of the notch (moved to `[0.1,0.2]` or `[-0.05,0.05]`, deepened to
+   scale 0.8/0.5/0.2, or widened to `[0.5,1]`, `[0.5,2]`, `[0.5,inf)`), each run on `sin(3x)`, `x^2`,
+   moons, spirals and the Fashion-MNIST MLP. See `HELU_VARIANTS` in `helu_research/activations.py`.
+   Run alone with `python run_all.py variants`.

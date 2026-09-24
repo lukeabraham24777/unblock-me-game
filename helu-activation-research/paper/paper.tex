@@ -154,6 +154,11 @@ unequal-variance $t$-test.
         initialisation and after 3 epochs of training. 3 seeds.
   \item[E8: Kernel cost.] Wall time of forward plus backward through the activation alone on a
         $4\times10^6$-element tensor, 20 repetitions.
+  \item[E9: Notch variants.] Fifteen variants of \eqref{eq:helu} obtained by moving the notch
+        ($[0.5,0.6]$, $[0.1,0.2]$, $[-0.05,0.05]$), deepening it (scale $0.9$, $0.8$, $0.5$, $0.2$), or
+        widening it ($[0.5,1.0]$, $[0.5,2.0]$, $[0.5,\infty)$ at scale $0.2$). Each variant is run under
+        the E2 protocol on $\sin 3x$ and $x^2$, the E3 protocol on moons and spirals, and the E4
+        Fashion-MNIST MLP protocol for 3 epochs, all with 3 seeds.
 \end{description}
 
 \section{Results}
@@ -331,6 +336,29 @@ way. The notch is not so much unhelpful as unused.
 Table~\ref{tab:time} shows that HeLU is not cheaper either. Implemented as a masked \texttt{where}, its
 kernel costs more than ReLU's and about the same as GELU's, and end-to-end epoch time is dominated by the
 linear layers in any case.
+
+\subsection{Variants of the notch}
+\label{sec:variants}
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=\linewidth]{fig_variants.pdf}
+  \caption{E9: fifteen variants of the HeLU notch, written as $[\text{lo},\text{hi}]\times\text{scale}$.
+  The first row is the original HeLU. Bars are means over 3 seeds, dots are seeds, and the vertical
+  lines are the ReLU, GELU, and linear-control means from the main experiments. Colour groups variants
+  by notch position; yellow marks the widened notches.}
+  \label{fig:variants}
+\end{figure}
+
+\begin{table}[t]
+  \centering\small
+  \caption{E9: HeLU variants (means over 3 seeds; Fashion-MNIST also shows sd). MSE lower is better,
+  accuracy higher is better. Baselines from the main experiments are repeated at the bottom.}
+  \label{tab:variants}
+  \resizebox{\linewidth}{!}{\input{generated/tab_variants.tex}}
+\end{table}
+
+%%VARIANTS_PROSE%%
 
 \section{Discussion}
 
