@@ -449,3 +449,89 @@ def run_variant_occupancy(root: str, variants=("n0.5-0.6_s0.9", "n0.5-1.0_s0.2",
                   f"R2={recs[-1]['linear_r2_trained']:.4f}", flush=True)
         out["results"][v] = recs
     return out
+
+
+# --------------------------------------------------------------------------
+# Experiment 11: the staircase function y = 2*floor(x/2), exact and with a straight-through estimator
+# --------------------------------------------------------------------------
+def run_stair(root: str, names=("stair", "stair_ste"), seeds=(0, 1, 2), steps: int = 3000, epochs: int = 3,
+              hidden: int = 64, depth: int = 2, lr: float = 3e-3, image_hidden: int = 256,
+              image_lr: float = 1e-3, grid_n: int = 200) -> dict:
+    """Same protocols as E9 (sin 3x, x^2, moons, spirals, Fashion-MNIST MLP) plus stored seed-0 fits,
+    decision boundaries, linear-fit R^2 and the gradient norm reaching the first hidden layer."""
+    out: dict = {"names": list(names), "seeds": list(seeds), "epochs": epochs,
+                 "reg_targets": ["sin(3x)", "x^2"], "cls_datasets": ["moons", "spirals"], "results": {},
+                 "curves": {}, "boundaries": {}}
+    xg = torch.linspace(-2, 2, 400).unsqueeze(1)
+    x_shape = torch.linspace(-5, 5, 2001)
+    out["shape"] = {"x": x_shape.tolist(), "y": activation_fn("stair")(x_shape).tolist()}
+    (xtr_img, _), (xte_img, _) = cached_image_tensors("fashion", root)
+    probe = xte_img[:2000]
+    for nm in names:
+        r: dict = {"reg1d": {}, "cls2d": {}, "fashion_mlp": [], "fashion_r2": [], "fashion_grad_norm_l1": []}
+        out["curves"][nm], out["boundaries"][nm] = {}, {}
+        for t in out["reg_targets"]:
+            mses = []
+            for s in seeds:
+                set_seed(s)
+                tf = TARGETS[t]
+                xtr = torch.rand(512, 1) * 4 - 2
+                ytr = tf(xtr) + 0.05 * torch.randn_like(xtr)
+                xte = torch.rand(2000, 1) * 4 - 2
+                model = MLP(1, hidden, 1, depth, nm)
+                opt = torch.optim.Adam(model.parameters(), lr=lr)
+                for _ in range(steps):
+                    loss = F.mse_loss(model(xtr), ytr)
+                    opt.zero_grad(set_to_none=True)
+                    loss.backward()
+                    opt.step()
+                with torch.no_grad():
+                    mses.append(F.mse_loss(model(xte), tf(xte)).item())
+                    if s == seeds[0]:
+                        out["curves"][nm][t] = {"x": xg.squeeze(1).tolist(), "y_true": tf(xg).squeeze(1).tolist(),
+                                                "fit": model(xg).squeeze(1).tolist()}
+            r["reg1d"][t] = mses
+        for dname in out["cls_datasets"]:
+            accs = []
+            for s in seeds:
+                set_seed(s)
+                Xtr, ytr = make_2d(dname, 600, s)
+                Xte, yte = make_2d(dname, 4000, 1000 + s)
+                Xtr_t, ytr_t = torch.from_numpy(Xtr), torch.from_numpy(ytr)
+                model = MLP(2, hidden, 2, depth, nm)
+                opt = torch.optim.Adam(model.parameters(), lr=lr)
+                for _ in range(steps):
+                    loss = F.cross_entropy(model(Xtr_t), ytr_t)
+                    opt.zero_grad(set_to_none=True)
+                    loss.backward()
+                    opt.step()
+                with torch.no_grad():
+                    pred = model(torch.from_numpy(Xte)).argmax(1).numpy()
+                accs.append(float((pred == yte).mean()))
+                if s == seeds[0]:
+                    lo, hi = Xtr.min(0) - 0.3, Xtr.max(0) + 0.3
+                    gx, gy = np.meshgrid(np.linspace(lo[0], hi[0], grid_n), np.linspace(lo[1], hi[1], grid_n))
+                    grid = torch.from_numpy(np.stack([gx.ravel(), gy.ravel()], 1).astype(np.float32))
+                    with torch.no_grad():
+                        pgrid = F.softmax(model(grid), 1)[:, 1].numpy().reshape(grid_n, grid_n)
+                    out["boundaries"][nm][dname] = {"extent": [float(lo[0]), float(hi[0]), float(lo[1]), float(hi[1])],
+                                                    "p": pgrid.round(4).tolist(), "X": Xtr.tolist(), "y": ytr.tolist()}
+            r["cls2d"][dname] = accs
+        for s in seeds:
+            set_seed(s)
+            tr, te = loaders_from_cache("fashion", root, 128, s)
+            model = MLP(28 * 28, image_hidden, 10, 2, nm)
+            # gradient norm reaching the first hidden layer on one batch (is anything trainable?)
+            xb, yb = next(iter(tr))
+            F.cross_entropy(model(xb), yb).backward()
+            r["fashion_grad_norm_l1"].append(float(model.net[0].weight.grad.norm()))
+            model.zero_grad(set_to_none=True)
+            hist = train_classifier(model, tr, te, epochs, image_lr, log_every=10**9)
+            r["fashion_mlp"].append(hist.epoch_test_acc[-1])
+            r["fashion_r2"].append(linear_fit_r2(model, probe))
+        out["results"][nm] = r
+        print(f"  [{nm:9s}] sin MSE={np.mean(r['reg1d']['sin(3x)']):.4f} x^2 MSE={np.mean(r['reg1d']['x^2']):.4f} "
+              f"moons={np.mean(r['cls2d']['moons']):.4f} spirals={np.mean(r['cls2d']['spirals']):.4f} "
+              f"fashion={np.mean(r['fashion_mlp']):.4f} R2={np.mean(r['fashion_r2']):.4f} "
+              f"grad_l1={np.mean(r['fashion_grad_norm_l1']):.2e}", flush=True)
+    return out

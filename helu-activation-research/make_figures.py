@@ -434,6 +434,83 @@ def table_variant_occupancy():
         + "\n".join(rows) + "\n\\bottomrule\n\\end{tabular}\n")
     print("wrote tab_variant_occupancy")
 
+
+# ---------------------------------------------------------------- Figure 9: staircase function
+STAIR_COLOR = {"stair": "#4a3aa7", "stair_ste": "#eda100"}
+STAIR_LABEL = {"stair": "staircase (exact)", "stair_ste": "staircase (STE)"}
+STAIR_SHORT = {"stair": "exact", "stair_ste": "STE"}
+
+
+def fig_stair():
+    d = load("stair")
+    fig, axes = plt.subplots(1, 5, figsize=(7.2, 1.85))
+    # (a) shape
+    ax = axes[0]
+    x, y = np.array(d["shape"]["x"]), np.array(d["shape"]["y"])
+    for k in np.arange(-6, 6, 2.0):   # draw each step separately so the jumps are open
+        m = (x >= k) & (x < k + 2)
+        if m.any():
+            ax.plot(x[m], y[m], color=STAIR_COLOR["stair"], lw=1.6)
+            ax.plot([k], [k], "o", ms=3, color=STAIR_COLOR["stair"])
+            ax.plot([k + 2], [k], "o", ms=3, mfc="white", mec=STAIR_COLOR["stair"], mew=1.0)
+    ax.plot(x, x, color=MUTED, lw=0.7, ls=":")
+    ax.set(xlim=(-5, 5), ylim=(-4.6, 4.6), xlabel="$x$", title="$y=2\\lfloor x/2\\rfloor$")
+    # (b,c) sin fits
+    for ax, nm in zip(axes[1:3], ["stair", "stair_ste"]):
+        c = d["curves"][nm]["sin(3x)"]
+        ax.plot(c["x"], c["y_true"], color=INK, lw=0.9, ls=":")
+        ax.plot(c["x"], c["fit"], color=STAIR_COLOR[nm], lw=1.3)
+        ax.set(xlim=(-2, 2), xlabel="$x$", title=f"$\\sin 3x$, {STAIR_SHORT[nm]}", ylim=(-1.4, 1.4))
+    # (d,e) spirals boundaries
+    cmap = matplotlib.colors.LinearSegmentedColormap.from_list("div", ["#2a78d6", "#f0efec", "#e34948"])
+    for ax, nm in zip(axes[3:5], ["stair", "stair_ste"]):
+        b = d["boundaries"][nm]["spirals"]
+        X, yy = np.array(b["X"]), np.array(b["y"])
+        ax.imshow(np.array(b["p"]), extent=b["extent"], origin="lower", cmap=cmap, vmin=0, vmax=1,
+                  aspect="auto", interpolation="bilinear")
+        ax.scatter(X[yy == 0, 0], X[yy == 0, 1], s=2, color="#0d366b", lw=0)
+        ax.scatter(X[yy == 1, 0], X[yy == 1, 1], s=2, color="#8a1f1f", lw=0)
+        acc = np.mean(d["results"][nm]["cls2d"]["spirals"])
+        ax.set_title(f"spirals, {STAIR_SHORT[nm]}")
+        ax.text(0.03, 0.03, f"acc {acc:.3f}", transform=ax.transAxes, fontsize=7.5, color=INK,
+                bbox=dict(boxstyle="round,pad=0.2", fc="white", ec="none", alpha=0.85))
+        ax.set_xticks([]); ax.set_yticks([])
+        for sp in ax.spines.values():
+            sp.set_visible(True); sp.set_color("#c3c2b7")
+    fig.tight_layout(w_pad=0.8)
+    save(fig, "fig_stair")
+
+
+def table_stair():
+    d = load("stair")
+    reg, cls, fm, lin = load("reg1d"), load("cls2d"), load("fashion_mlp"), load("linearity")
+    rows = []
+    for nm in d["names"]:
+        r = d["results"][nm]
+        rows.append(f"{STAIR_LABEL[nm]} & {np.mean(r['reg1d']['sin(3x)']):.4f} & {np.mean(r['reg1d']['x^2']):.4f} & "
+                    f"{100 * np.mean(r['cls2d']['moons']):.1f} & {100 * np.mean(r['cls2d']['spirals']):.1f} & "
+                    f"{100 * np.mean(r['fashion_mlp']):.2f} $\\pm$ {100 * np.std(r['fashion_mlp'], ddof=1):.2f} & "
+                    f"{np.mean(r['fashion_r2']):.4f} & {np.mean(r['fashion_grad_norm_l1']):.2f} \\\\")
+    rows.append("\\midrule")
+    for a in ["relu", "gelu", "helu", "identity"]:
+        r2 = np.mean([r["linear_r2_trained"] for r in lin["results"][a]])
+        rows.append(f"{ACT_LABEL[a]} & {np.mean(reg['results']['sin(3x)'][a]):.4f} & {np.mean(reg['results']['x^2'][a]):.4f} & "
+                    f"{100 * np.mean(cls['results']['moons'][a]):.1f} & {100 * np.mean(cls['results']['spirals'][a]):.1f} & "
+                    f"{100 * np.mean([r['epoch_test_acc'][-1] for r in fm['runs'][a]]):.2f} & {r2:.4f} & -- \\\\")
+    (GEN / "tab_stair.tex").write_text(
+        "\\begin{tabular}{lccccccc}\n\\toprule\n"
+        "Activation & $\\sin 3x$ MSE & $x^2$ MSE & Moons (\\%) & Spirals (\\%) & Fashion-MNIST (\\%) & $R^2$ & $\\|\\nabla W_1\\|$ \\\\\n\\midrule\n"
+        + "\n".join(rows) + "\n\\bottomrule\n\\end{tabular}\n")
+    m = []
+    for nm, key in [("stair", "Stair"), ("stair_ste", "StairSte")]:
+        r = d["results"][nm]
+        m.append(f"\\newcommand{{\\acc{key}Fashion}}{{{100 * np.mean(r['fashion_mlp']):.1f}}}")
+        m.append(f"\\newcommand{{\\acc{key}Spirals}}{{{100 * np.mean(r['cls2d']['spirals']):.1f}}}")
+        m.append(f"\\newcommand{{\\acc{key}Moons}}{{{100 * np.mean(r['cls2d']['moons']):.1f}}}")
+        m.append(f"\\newcommand{{\\rTwo{key}}}{{{np.mean(r['fashion_r2']):.3f}}}")
+    (GEN / "macros_stair.tex").write_text("\n".join(m) + "\n")
+    print("wrote tab_stair")
+
 # ---------------------------------------------------------------- LaTeX tables
 def tables():
     out = []
@@ -552,3 +629,6 @@ if __name__ == "__main__":
         table_variants()
     if (RES / "variant_occupancy.json").exists():
         table_variant_occupancy()
+    if (RES / "stair.json").exists():
+        fig_stair()
+        table_stair()

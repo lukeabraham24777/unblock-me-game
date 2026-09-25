@@ -59,3 +59,6 @@ Experiments (all CPU, seeded):
    Run alone with `python run_all.py variants`.
 10. `variant_occupancy` – band occupancy and linear-fit `R^2` on Fashion-MNIST for the original notch
     and the three widened variants (explains why only the half-line variant becomes non-linear).
+11. `stair` – the staircase `y = 2*floor(x/2)` (value `k` on each `[k, k+2)`), exactly as defined
+    (zero gradient almost everywhere) and with a straight-through estimator, on the same tasks as
+    the variants. See `Stair` in `helu_research/activations.py`.

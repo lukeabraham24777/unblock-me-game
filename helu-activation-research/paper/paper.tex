@@ -17,6 +17,7 @@
 \graphicspath{{../figures/}}
 \input{generated/macros.tex}
 \IfFileExists{generated/macros_variants.tex}{\input{generated/macros_variants.tex}}{}
+\IfFileExists{generated/macros_stair.tex}{\input{generated/macros_stair.tex}}{}
 
 \newtheorem{proposition}{Proposition}
 \newcommand{\helu}{\mathrm{HeLU}}
@@ -49,7 +50,9 @@ limits of deep linear networks. The one setting in which HeLU comes within a poi
 the convolutional network, where max-pooling supplies the non-linearity that the activation does not,
 and the linear control comes equally close there. An ablation over sixteen variants of the notch
 (moved, deepened, or widened) shows that the deficit is a property of the notch design rather than of
-its particular constants. All code, raw results, and figures are released alongside this document.
+its particular constants, and a piecewise-constant staircase function, tested as a further
+alternative, fails for the opposite reason: it is too coarse and, as defined, has no gradient. All
+code, raw results, and figures are released alongside this document.
 \end{abstract}
 
 \section{Introduction}
@@ -163,6 +166,11 @@ unequal-variance $t$-test.
         wide symmetric band around zero ($[-0.68,0.68]$ at scale $0.5$). Each variant is run under
         the E2 protocol on $\sin 3x$ and $x^2$, the E3 protocol on moons and spirals, and the E4
         Fashion-MNIST MLP protocol for 3 epochs, all with 3 seeds.
+  \item[E10: Staircase function.] The function that equals $k$ on each interval $[k,k+2)$ for
+        $k\in 2\mathbb Z$, i.e.\ $S(x)=2\lfloor x/2\rfloor$, run under the E9 protocol in two forms:
+        exactly as defined, and with a straight-through estimator (STE) in which the backward pass
+        treats $S$ as the identity. We also record the $R^2$ of a linear fit to the trained
+        Fashion-MNIST network and the gradient norm reaching the first hidden layer at initialisation.
 \end{description}
 
 \section{Results}
@@ -426,6 +434,56 @@ exploiting the edges. Where a bounded band ends, the function returns to the ide
 network can always find a linear solution by arranging for that.
 }{\emph{(Variant results pending: run \texttt{python run\_all.py variants} and rebuild.)}}
 
+\IfFileExists{generated/tab_stair.tex}{%
+\subsection{A staircase function}
+\label{sec:stair}
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=\linewidth]{fig_stair.pdf}
+  \caption{E10. Left: the staircase $S(x)=2\lfloor x/2\rfloor$ (filled and open circles mark the
+  closed and open ends of each step; dotted line is $y=x$). Middle: seed-0 fits to $\sin 3x$ with the
+  exact staircase and with the straight-through estimator. Right: spirals decision functions for the
+  same two networks, with mean test accuracy over 3 seeds.}
+  \label{fig:stair}
+\end{figure}
+
+\begin{table}[t]
+  \centering\small
+  \caption{E10: the staircase function against the main baselines (means over 3 seeds; Fashion-MNIST
+  also shows sd). $R^2$ is the linear-fit coefficient of the trained Fashion-MNIST network;
+  $\|\nabla W_1\|$ is the norm of the gradient reaching the first hidden layer's weights on the first
+  training batch.}
+  \label{tab:stair}
+  \resizebox{\linewidth}{!}{\input{generated/tab_stair.tex}}
+\end{table}
+
+The final function we consider is not a notch at all: on each interval $[k,k+2)$, $k$ an even
+integer, the output is the interval's left endpoint, $S(x)=2\lfloor x/2\rfloor$
+(Figure~\ref{fig:stair}, left). $S$ is piecewise constant, so its derivative is zero everywhere except
+at the jumps, where it is undefined. Under ordinary backpropagation no gradient reaches any layer
+below an $S$ activation. Table~\ref{tab:stair} confirms this directly: the gradient norm at the first
+hidden layer is exactly $0$. The exact staircase therefore trains only its output layer, on top of
+\emph{random} quantised features fixed at initialisation. Because those features are non-linear (a
+random threshold at $0$ and at $\pm2$), this random-feature model is not useless: it reaches
+\accStairMoons\% on moons and \accStairSpirals\% on spirals, and fits $\sin 3x$ with MSE $0.016$
+(Figure~\ref{fig:stair}, middle). On Fashion-MNIST, however, the frozen random features give
+\accStairFashion\%, nine points below the linear control, and the piecewise-constant fits and
+boundaries in Figure~\ref{fig:stair} show the coarse, blocky structure that a width-2 staircase
+imposes.
+
+Giving $S$ a straight-through gradient, the standard remedy for quantised activations, lets the hidden
+layers train. This improves every task: \accStairSteMoons\% on moons, \accStairSteSpirals\% on
+spirals, and \accStairSteFashion\% on Fashion-MNIST. But the Fashion-MNIST figure is still one point
+below the linear control and six below ReLU, and the trained network is nearly linear
+($R^2=\rTwoStairSte$). With pre-activations of order $0.6$ at initialisation, almost every unit sees
+inputs in $[-2,2)$, where $S$ takes only the two values $-2$ and $0$; the activation acts as a
+one-bit quantiser of the sign of each pre-activation, and the information the network can pass
+between layers is limited accordingly. The staircase is thus a different failure from the notch. HeLU
+fails because its non-linearity is too small to matter; the staircase fails because its non-linearity
+is too coarse, and because as defined it cannot be trained by gradient descent at all.
+}{}
+
 \section{Discussion}
 
 \paragraph{Why HeLU fails.} A useful activation function must do two things: give the network a
@@ -473,7 +531,9 @@ to the baselines is one in which max-pooling supplies the non-linearity, and a n
 activation at all comes equally close there. An ablation over sixteen variants confirms that the
 problem is the notch design rather than its constants: no bounded notch, at any position or depth we
 tried, produces a non-linear network on Fashion-MNIST, and the one variant that does is no longer a
-notch.
+notch. A staircase function $2\lfloor x/2\rfloor$, tested as a further alternative, cannot be trained
+by backpropagation as defined and, with a straight-through gradient, still trails the linear control
+on Fashion-MNIST.
 
 \section*{Reproducibility}
 

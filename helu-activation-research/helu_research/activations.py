@@ -82,12 +82,44 @@ class Identity(nn.Module):
         return x
 
 
+# Staircase function -------------------------------------------------------
+STAIR_WIDTH = 2.0
+
+
+def stair(x: torch.Tensor, width: float = STAIR_WIDTH) -> torch.Tensor:
+    """y = k on each interval [k, k + width), k a multiple of `width`, i.e. y = width * floor(x / width).
+
+    Exact definition: the derivative is 0 almost everywhere, so hidden layers
+    receive no gradient under ordinary backpropagation."""
+    return width * torch.floor(x / width)
+
+
+def stair_ste(x: torch.Tensor, width: float = STAIR_WIDTH) -> torch.Tensor:
+    """Same forward pass as `stair`, but with a straight-through estimator:
+    the backward pass treats the function as the identity (d/dx = 1)."""
+    return x + (stair(x, width) - x).detach()
+
+
+class Stair(nn.Module):
+    def __init__(self, width: float = STAIR_WIDTH, ste: bool = False):
+        super().__init__()
+        self.width, self.ste = float(width), bool(ste)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return stair_ste(x, self.width) if self.ste else stair(x, self.width)
+
+    def extra_repr(self) -> str:
+        return f"width={self.width}, ste={self.ste}"
+
+
 # Registry ----------------------------------------------------------------
 ACTIVATIONS = {
     "relu": nn.ReLU,
     "gelu": nn.GELU,
     "helu": HeLU,
     "identity": Identity,
+    "stair": Stair,                                  # exact staircase, zero gradient a.e.
+    "stair_ste": lambda: Stair(ste=True),            # staircase with straight-through gradient
 }
 
 # Order used everywhere (tables, figures, legends).
@@ -114,4 +146,6 @@ def activation_fn(name: str):
         "gelu": F.gelu,
         "helu": helu,
         "identity": lambda t: t,
+        "stair": stair,
+        "stair_ste": stair_ste,
     }[name]
