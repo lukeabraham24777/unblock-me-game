@@ -82,34 +82,28 @@ class Identity(nn.Module):
         return x
 
 
-# Staircase function -------------------------------------------------------
-STAIR_WIDTH = 2.0
+# Sawtooth function --------------------------------------------------------
+SAW_PERIOD = 2.0
 
 
-def stair(x: torch.Tensor, width: float = STAIR_WIDTH) -> torch.Tensor:
-    """y = k on each interval [k, k + width), k a multiple of `width`, i.e. y = width * floor(x / width).
+def sawtooth(x: torch.Tensor, period: float = SAW_PERIOD) -> torch.Tensor:
+    """On each interval [k, k + period), k a multiple of `period`, a straight line from
+    (k, 0) to (k + period, 1):  y = (x - k) / period = x / period - floor(x / period).
 
-    Exact definition: the derivative is 0 almost everywhere, so hidden layers
-    receive no gradient under ordinary backpropagation."""
-    return width * torch.floor(x / width)
-
-
-def stair_ste(x: torch.Tensor, width: float = STAIR_WIDTH) -> torch.Tensor:
-    """Same forward pass as `stair`, but with a straight-through estimator:
-    the backward pass treats the function as the identity (d/dx = 1)."""
-    return x + (stair(x, width) - x).detach()
+    Derivative is 1 / period almost everywhere; the function drops by 1 at every multiple of `period`."""
+    return x / period - torch.floor(x / period)
 
 
-class Stair(nn.Module):
-    def __init__(self, width: float = STAIR_WIDTH, ste: bool = False):
+class Sawtooth(nn.Module):
+    def __init__(self, period: float = SAW_PERIOD):
         super().__init__()
-        self.width, self.ste = float(width), bool(ste)
+        self.period = float(period)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return stair_ste(x, self.width) if self.ste else stair(x, self.width)
+        return sawtooth(x, self.period)
 
     def extra_repr(self) -> str:
-        return f"width={self.width}, ste={self.ste}"
+        return f"period={self.period}"
 
 
 # Registry ----------------------------------------------------------------
@@ -118,8 +112,7 @@ ACTIVATIONS = {
     "gelu": nn.GELU,
     "helu": HeLU,
     "identity": Identity,
-    "stair": Stair,                                  # exact staircase, zero gradient a.e.
-    "stair_ste": lambda: Stair(ste=True),            # staircase with straight-through gradient
+    "sawtooth": Sawtooth,                            # periodic ramp 0 -> 1 on each [k, k+2)
 }
 
 # Order used everywhere (tables, figures, legends).
@@ -146,6 +139,5 @@ def activation_fn(name: str):
         "gelu": F.gelu,
         "helu": helu,
         "identity": lambda t: t,
-        "stair": stair,
-        "stair_ste": stair_ste,
+        "sawtooth": sawtooth,
     }[name]

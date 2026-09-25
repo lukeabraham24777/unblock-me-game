@@ -435,81 +435,127 @@ def table_variant_occupancy():
     print("wrote tab_variant_occupancy")
 
 
-# ---------------------------------------------------------------- Figure 9: staircase function
-STAIR_COLOR = {"stair": "#4a3aa7", "stair_ste": "#eda100"}
-STAIR_LABEL = {"stair": "staircase (exact)", "stair_ste": "staircase (STE)"}
-STAIR_SHORT = {"stair": "exact", "stair_ste": "STE"}
+# ---------------------------------------------------------------- Figure 9: sawtooth function
+SAW_COLOR = "#4a3aa7"
 
 
-def fig_stair():
-    d = load("stair")
-    fig, axes = plt.subplots(1, 5, figsize=(7.2, 1.85))
-    # (a) shape
+def fig_sawtooth():
+    d = load("sawtooth")
+    g = load("sawtooth_diag")
+    nm = "sawtooth"
+    fig, axes = plt.subplots(1, 5, figsize=(7.2, 1.9))
+    # (a) shape: draw each period separately so the jumps stay open
     ax = axes[0]
-    x, y = np.array(d["shape"]["x"]), np.array(d["shape"]["y"])
-    for k in np.arange(-6, 6, 2.0):   # draw each step separately so the jumps are open
+    x, y = np.array(d["shape"]["x"]), np.array(d["shape"][nm])
+    for k in np.arange(-6, 6, 2.0):
         m = (x >= k) & (x < k + 2)
         if m.any():
-            ax.plot(x[m], y[m], color=STAIR_COLOR["stair"], lw=1.6)
-            ax.plot([k], [k], "o", ms=3, color=STAIR_COLOR["stair"])
-            ax.plot([k + 2], [k], "o", ms=3, mfc="white", mec=STAIR_COLOR["stair"], mew=1.0)
-    ax.plot(x, x, color=MUTED, lw=0.7, ls=":")
-    ax.set(xlim=(-5, 5), ylim=(-4.6, 4.6), xlabel="$x$", title="$y=2\\lfloor x/2\\rfloor$")
-    # (b,c) sin fits
-    for ax, nm in zip(axes[1:3], ["stair", "stair_ste"]):
-        c = d["curves"][nm]["sin(3x)"]
-        ax.plot(c["x"], c["y_true"], color=INK, lw=0.9, ls=":")
-        ax.plot(c["x"], c["fit"], color=STAIR_COLOR[nm], lw=1.3)
-        ax.set(xlim=(-2, 2), xlabel="$x$", title=f"$\\sin 3x$, {STAIR_SHORT[nm]}", ylim=(-1.4, 1.4))
-    # (d,e) spirals boundaries
+            ax.plot(x[m], y[m], color=SAW_COLOR, lw=1.5)
+            ax.plot([k], [0], "o", ms=2.8, color=SAW_COLOR)
+            ax.plot([k + 2], [1], "o", ms=2.8, mfc="white", mec=SAW_COLOR, mew=1.0)
+    ax.set(xlim=(-5, 5), ylim=(-0.15, 1.25), xlabel="$x$", title="$y=x/2-\\lfloor x/2\\rfloor$")
+    # (b) sin fit
+    ax = axes[1]
+    c = d["curves"][nm]["sin(3x)"]
+    ax.plot(c["x"], c["y_true"], color=INK, lw=0.9, ls=":")
+    ax.plot(c["x"], c["fit"], color=SAW_COLOR, lw=1.3)
+    ax.set(xlim=(-2, 2), ylim=(-1.4, 1.4), xlabel="$x$", title="$\\sin 3x$ fit")
+    # (c) spirals boundary
+    ax = axes[2]
     cmap = matplotlib.colors.LinearSegmentedColormap.from_list("div", ["#2a78d6", "#f0efec", "#e34948"])
-    for ax, nm in zip(axes[3:5], ["stair", "stair_ste"]):
-        b = d["boundaries"][nm]["spirals"]
-        X, yy = np.array(b["X"]), np.array(b["y"])
-        ax.imshow(np.array(b["p"]), extent=b["extent"], origin="lower", cmap=cmap, vmin=0, vmax=1,
-                  aspect="auto", interpolation="bilinear")
-        ax.scatter(X[yy == 0, 0], X[yy == 0, 1], s=2, color="#0d366b", lw=0)
-        ax.scatter(X[yy == 1, 0], X[yy == 1, 1], s=2, color="#8a1f1f", lw=0)
-        acc = np.mean(d["results"][nm]["cls2d"]["spirals"])
-        ax.set_title(f"spirals, {STAIR_SHORT[nm]}")
-        ax.text(0.03, 0.03, f"acc {acc:.3f}", transform=ax.transAxes, fontsize=7.5, color=INK,
-                bbox=dict(boxstyle="round,pad=0.2", fc="white", ec="none", alpha=0.85))
-        ax.set_xticks([]); ax.set_yticks([])
-        for sp in ax.spines.values():
-            sp.set_visible(True); sp.set_color("#c3c2b7")
-    fig.tight_layout(w_pad=0.8)
-    save(fig, "fig_stair")
+    b = d["boundaries"][nm]["spirals"]
+    X, yy = np.array(b["X"]), np.array(b["y"])
+    ax.imshow(np.array(b["p"]), extent=b["extent"], origin="lower", cmap=cmap, vmin=0, vmax=1,
+              aspect="auto", interpolation="bilinear")
+    ax.scatter(X[yy == 0, 0], X[yy == 0, 1], s=2, color="#0d366b", lw=0)
+    ax.scatter(X[yy == 1, 0], X[yy == 1, 1], s=2, color="#8a1f1f", lw=0)
+    ax.set_title("spirals")
+    ax.text(0.03, 0.03, f"acc {np.mean(d['results'][nm]['cls2d']['spirals']):.3f}", transform=ax.transAxes,
+            fontsize=7.5, color=INK, bbox=dict(boxstyle="round,pad=0.2", fc="white", ec="none", alpha=0.85))
+    ax.set_xticks([]); ax.set_yticks([])
+    for sp in ax.spines.values():
+        sp.set_visible(True); sp.set_color("#c3c2b7")
+    # (d) learning-rate sweep
+    ax = axes[3]
+    lrs = [float(k) for k in g["lrs"]]
+    for task, col, lab in [("fashion_mlp", "#2a78d6", "Fashion"), ("moons", "#eb6834", "moons"),
+                           ("spirals", "#1baf7a", "spirals")]:
+        m = [np.mean(g["lr_sweep"][str(lr)][task]) for lr in lrs]
+        sd = [np.std(g["lr_sweep"][str(lr)][task], ddof=1) for lr in lrs]
+        ax.errorbar(lrs, m, yerr=sd, color=col, marker="o", ms=3, capsize=2, lw=1.2, label=lab)
+    ax.axhline(0.1, color=MUTED, lw=0.7, ls=":")
+    ax.set_xscale("log")
+    ax.set(xlabel="learning rate", ylabel="test accuracy", title="LR sweep", ylim=(0, 1.02))
+    ax.legend(fontsize=6, loc="upper right", handlelength=1.0, borderpad=0.3, labelspacing=0.2)
+    # (e) pre-activation drift
+    ax = axes[4]
+    init = [np.mean(g["lr_sweep"][str(lr)]["preact_std_init"]) for lr in lrs]
+    tr_ = [np.mean(g["lr_sweep"][str(lr)]["preact_std_trained"]) for lr in lrs]
+    ax.plot(lrs, init, color=MUTED, ls="--", marker="o", ms=3, lw=1.2, label="at init")
+    ax.plot(lrs, tr_, color=SAW_COLOR, marker="o", ms=3, lw=1.4, label="after training")
+    ax.axhspan(0, 2, color=SAW_COLOR, alpha=0.08, lw=0)
+    ax.set_xscale("log"); ax.set_yscale("log")
+    ax.set(xlabel="learning rate", title="layer-1 pre-act. std")
+    ax.legend(fontsize=6.5, loc="upper left")
+    fig.tight_layout(w_pad=0.7)
+    save(fig, "fig_sawtooth")
 
 
-def table_stair():
-    d = load("stair")
+def lr_tex(lr) -> str:
+    e = int(round(np.log10(float(lr))))
+    return f"10^{{{e}}}" if abs(float(lr) - 10.0 ** e) < 1e-12 else f"{float(lr):g}"
+
+
+def table_sawtooth():
+    d = load("sawtooth"); g = load("sawtooth_diag")
     reg, cls, fm, lin = load("reg1d"), load("cls2d"), load("fashion_mlp"), load("linearity")
-    rows = []
-    for nm in d["names"]:
-        r = d["results"][nm]
-        rows.append(f"{STAIR_LABEL[nm]} & {np.mean(r['reg1d']['sin(3x)']):.4f} & {np.mean(r['reg1d']['x^2']):.4f} & "
-                    f"{100 * np.mean(r['cls2d']['moons']):.1f} & {100 * np.mean(r['cls2d']['spirals']):.1f} & "
-                    f"{100 * np.mean(r['fashion_mlp']):.2f} $\\pm$ {100 * np.std(r['fashion_mlp'], ddof=1):.2f} & "
-                    f"{np.mean(r['fashion_r2']):.4f} & {np.mean(r['fashion_grad_norm_l1']):.2f} \\\\")
-    rows.append("\\midrule")
+    r = d["results"]["sawtooth"]
+    rows = [f"Sawtooth & {np.mean(r['reg1d']['sin(3x)']):.4f} & {np.mean(r['reg1d']['x^2']):.4f} & "
+            f"{100 * np.mean(r['cls2d']['moons']):.1f} & {100 * np.mean(r['cls2d']['spirals']):.1f} & "
+            f"{100 * np.mean(r['fashion_mlp']):.2f} $\\pm$ {100 * np.std(r['fashion_mlp'], ddof=1):.2f} & "
+            f"{np.mean(r['fashion_r2']):.4f} \\\\", "\\midrule"]
     for a in ["relu", "gelu", "helu", "identity"]:
-        r2 = np.mean([r["linear_r2_trained"] for r in lin["results"][a]])
+        r2 = np.mean([q["linear_r2_trained"] for q in lin["results"][a]])
         rows.append(f"{ACT_LABEL[a]} & {np.mean(reg['results']['sin(3x)'][a]):.4f} & {np.mean(reg['results']['x^2'][a]):.4f} & "
                     f"{100 * np.mean(cls['results']['moons'][a]):.1f} & {100 * np.mean(cls['results']['spirals'][a]):.1f} & "
-                    f"{100 * np.mean([r['epoch_test_acc'][-1] for r in fm['runs'][a]]):.2f} & {r2:.4f} & -- \\\\")
-    (GEN / "tab_stair.tex").write_text(
-        "\\begin{tabular}{lccccccc}\n\\toprule\n"
-        "Activation & $\\sin 3x$ MSE & $x^2$ MSE & Moons (\\%) & Spirals (\\%) & Fashion-MNIST (\\%) & $R^2$ & $\\|\\nabla W_1\\|$ \\\\\n\\midrule\n"
+                    f"{100 * np.mean([q['epoch_test_acc'][-1] for q in fm['runs'][a]]):.2f} & {r2:.4f} \\\\")
+    (GEN / "tab_sawtooth.tex").write_text(
+        "\\begin{tabular}{lcccccc}\n\\toprule\n"
+        "Activation & $\\sin 3x$ MSE & $x^2$ MSE & Moons (\\%) & Spirals (\\%) & Fashion-MNIST (\\%) & $R^2$ \\\\\n\\midrule\n"
         + "\n".join(rows) + "\n\\bottomrule\n\\end{tabular}\n")
-    m = []
-    for nm, key in [("stair", "Stair"), ("stair_ste", "StairSte")]:
-        r = d["results"][nm]
-        m.append(f"\\newcommand{{\\acc{key}Fashion}}{{{100 * np.mean(r['fashion_mlp']):.1f}}}")
-        m.append(f"\\newcommand{{\\acc{key}Spirals}}{{{100 * np.mean(r['cls2d']['spirals']):.1f}}}")
-        m.append(f"\\newcommand{{\\acc{key}Moons}}{{{100 * np.mean(r['cls2d']['moons']):.1f}}}")
-        m.append(f"\\newcommand{{\\rTwo{key}}}{{{np.mean(r['fashion_r2']):.3f}}}")
-    (GEN / "macros_stair.tex").write_text("\n".join(m) + "\n")
-    print("wrote tab_stair")
+    # diagnostics table: LR sweep rows + descent fractions
+    rows = []
+    for lr in g["lrs"]:
+        q = g["lr_sweep"][str(lr)]
+        rows.append(f"${lr_tex(lr)}$ & {100 * np.mean(q['moons']):.1f} & {100 * np.mean(q['spirals']):.1f} & "
+                    f"{100 * np.mean(q['fashion_mlp']):.1f} & {np.mean(q['final_train_loss']):.3f} & "
+                    f"{np.mean(q['preact_std_init']):.2f} $\\to$ {np.mean(q['preact_std_trained']):.1f} \\\\")
+    (GEN / "tab_sawtooth_lr.tex").write_text(
+        "\\begin{tabular}{lccccc}\n\\toprule\n"
+        "Learning rate & Moons (\\%) & Spirals (\\%) & Fashion-MNIST (\\%) & Final train loss & Layer-1 pre-act.\\ std \\\\\n\\midrule\n"
+        + "\n".join(rows) + "\n\\bottomrule\n\\end{tabular}\n")
+    etas = list(next(iter(g["descent"].values())).keys())
+    rows = []
+    lab = {"sawtooth": "Sawtooth", "relu": "ReLU", "helu": "HeLU", "identity": "Identity"}
+    for a, res in g["descent"].items():
+        rows.append(f"{lab.get(a, a)} & " + " & ".join(f"{100 * res[e]['frac_decrease']:.0f}" for e in etas) + " \\\\")
+    (GEN / "tab_sawtooth_descent.tex").write_text(
+        "\\begin{tabular}{l" + "c" * len(etas) + "}\n\\toprule\n"
+        "Activation & " + " & ".join(f"$\\eta={float(e):g}$" for e in etas) + " \\\\\n\\midrule\n"
+        + "\n".join(rows) + "\n\\bottomrule\n\\end{tabular}\n")
+    m = [f"\\newcommand{{\\accSawFashion}}{{{100 * np.mean(r['fashion_mlp']):.1f}}}",
+         f"\\newcommand{{\\accSawMoons}}{{{100 * np.mean(r['cls2d']['moons']):.1f}}}",
+         f"\\newcommand{{\\accSawSpirals}}{{{100 * np.mean(r['cls2d']['spirals']):.1f}}}",
+         f"\\newcommand{{\\mseSawSin}}{{{np.mean(r['reg1d']['sin(3x)']):.2f}}}",
+         f"\\newcommand{{\\rTwoSaw}}{{{np.mean(r['fashion_r2']):.2f}}}"]
+    best_lr = max(g["lrs"], key=lambda lr: np.mean(g["lr_sweep"][str(lr)]["moons"]))
+    m.append(f"\\newcommand{{\\sawBestMoons}}{{{100 * np.mean(g['lr_sweep'][str(best_lr)]['moons']):.0f}}}")
+    m.append(f"\\newcommand{{\\sawBestMoonsLr}}{{{lr_tex(best_lr)}}}")
+    q = g["lr_sweep"]["0.001"]
+    m.append(f"\\newcommand{{\\sawDriftDefault}}{{{np.mean(q['preact_std_trained']):.0f}}}")
+    m.append(f"\\newcommand{{\\sawDescentLow}}{{{100 * min(v['frac_decrease'] for v in g['descent']['sawtooth'].values()):.0f}}}")
+    (GEN / "macros_sawtooth.tex").write_text("\n".join(m) + "\n")
+    print("wrote tab_sawtooth*")
 
 # ---------------------------------------------------------------- LaTeX tables
 def tables():
@@ -629,6 +675,6 @@ if __name__ == "__main__":
         table_variants()
     if (RES / "variant_occupancy.json").exists():
         table_variant_occupancy()
-    if (RES / "stair.json").exists():
-        fig_stair()
-        table_stair()
+    if (RES / "sawtooth.json").exists() and (RES / "sawtooth_diag.json").exists():
+        fig_sawtooth()
+        table_sawtooth()

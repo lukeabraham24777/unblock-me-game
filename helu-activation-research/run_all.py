@@ -56,7 +56,10 @@ def main() -> None:
         "variants": lambda: E.run_variants(DATA, seeds=(0,) if q else (0, 1, 2), steps=200 if q else 3000,
                                            epochs=1 if q else 3),
         "variant_occupancy": lambda: E.run_variant_occupancy(DATA, seeds=(0,) if q else (0, 1, 2), epochs=1 if q else 3),
-        "stair": lambda: E.run_stair(DATA, seeds=(0,) if q else (0, 1, 2), steps=200 if q else 3000, epochs=1 if q else 3),
+        "sawtooth": lambda: E.run_extra(DATA, names=("sawtooth",), seeds=(0,) if q else (0, 1, 2),
+                                        steps=200 if q else 3000, epochs=1 if q else 3),
+        "sawtooth_diag": lambda: E.run_sawtooth_diagnostics(DATA, seeds=(0,) if q else (0, 1, 2),
+                                                            steps=200 if q else 3000, epochs=1 if q else 3),
     }
     names = args.only or list(jobs)
     unknown = [n for n in names if n not in jobs]

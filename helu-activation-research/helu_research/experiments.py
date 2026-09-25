@@ -452,9 +452,9 @@ def run_variant_occupancy(root: str, variants=("n0.5-0.6_s0.9", "n0.5-1.0_s0.2",
 
 
 # --------------------------------------------------------------------------
-# Experiment 11: the staircase function y = 2*floor(x/2), exact and with a straight-through estimator
+# Experiment 11: extra activations (currently the sawtooth y = x/2 - floor(x/2))
 # --------------------------------------------------------------------------
-def run_stair(root: str, names=("stair", "stair_ste"), seeds=(0, 1, 2), steps: int = 3000, epochs: int = 3,
+def run_extra(root: str, names=("sawtooth",), seeds=(0, 1, 2), steps: int = 3000, epochs: int = 3,
               hidden: int = 64, depth: int = 2, lr: float = 3e-3, image_hidden: int = 256,
               image_lr: float = 1e-3, grid_n: int = 200) -> dict:
     """Same protocols as E9 (sin 3x, x^2, moons, spirals, Fashion-MNIST MLP) plus stored seed-0 fits,
@@ -464,7 +464,8 @@ def run_stair(root: str, names=("stair", "stair_ste"), seeds=(0, 1, 2), steps: i
                  "curves": {}, "boundaries": {}}
     xg = torch.linspace(-2, 2, 400).unsqueeze(1)
     x_shape = torch.linspace(-5, 5, 2001)
-    out["shape"] = {"x": x_shape.tolist(), "y": activation_fn("stair")(x_shape).tolist()}
+    out["shape"] = {nm: activation_fn(nm)(x_shape).tolist() for nm in names}
+    out["shape"]["x"] = x_shape.tolist()
     (xtr_img, _), (xte_img, _) = cached_image_tensors("fashion", root)
     probe = xte_img[:2000]
     for nm in names:
@@ -534,4 +535,70 @@ def run_stair(root: str, names=("stair", "stair_ste"), seeds=(0, 1, 2), steps: i
               f"moons={np.mean(r['cls2d']['moons']):.4f} spirals={np.mean(r['cls2d']['spirals']):.4f} "
               f"fashion={np.mean(r['fashion_mlp']):.4f} R2={np.mean(r['fashion_r2']):.4f} "
               f"grad_l1={np.mean(r['fashion_grad_norm_l1']):.2e}", flush=True)
+    return out
+
+
+# --------------------------------------------------------------------------
+# Experiment 12: sawtooth diagnostics: learning-rate sweep and descent-direction test
+# --------------------------------------------------------------------------
+def _descent_fraction(act: str, root: str, etas=(1e-3, 1e-2, 1e-1), n_batches: int = 50, seed: int = 0,
+                      hidden: int = 256) -> dict:
+    """For `n_batches` mini-batches at initialisation: take a plain gradient step of size eta along
+    -grad and record the actual change in the batch loss. Returns the fraction of batches on which the
+    loss went DOWN (i.e. the autograd gradient was a descent direction), per eta, plus the mean
+    relative change."""
+    set_seed(seed)
+    tr, _ = loaders_from_cache("fashion", root, 128, seed)
+    model = MLP(28 * 28, hidden, 10, 2, act)
+    out = {}
+    for eta in etas:
+        down, rel = 0, []
+        it = iter(tr)
+        for _ in range(n_batches):
+            x, y = next(it)
+            params = [p for p in model.parameters()]
+            loss0 = F.cross_entropy(model(x), y)
+            grads = torch.autograd.grad(loss0, params)
+            with torch.no_grad():
+                for p_, g in zip(params, grads):
+                    p_ -= eta * g
+                loss1 = F.cross_entropy(model(x), y)
+                for p_, g in zip(params, grads):
+                    p_ += eta * g
+            d = (loss1 - loss0).item()
+            down += d < 0
+            rel.append(d / loss0.item())
+        out[str(eta)] = {"frac_decrease": down / n_batches, "mean_rel_change": float(np.mean(rel))}
+    return out
+
+
+def run_sawtooth_diagnostics(root: str, lrs=(1e-2, 1e-3, 1e-4, 1e-5), seeds=(0, 1, 2), steps: int = 3000,
+                             epochs: int = 3, acts_for_descent=("sawtooth", "relu", "helu", "identity")) -> dict:
+    out: dict = {"lrs": list(lrs), "seeds": list(seeds), "epochs": epochs, "lr_sweep": {}, "descent": {}}
+    (_, _), (xte, _) = cached_image_tensors("fashion", root)
+    probe = xte[:2000]
+    for lr in lrs:
+        r = {"moons": [], "spirals": [], "fashion_mlp": [], "preact_std_init": [], "preact_std_trained": [],
+             "final_train_loss": []}
+        for s in seeds:
+            r["moons"].append(_train_cls2d_one("sawtooth", "moons", s, steps, 64, 2, lr))
+            r["spirals"].append(_train_cls2d_one("sawtooth", "spirals", s, steps, 64, 2, lr))
+            set_seed(s)
+            tr, te = loaders_from_cache("fashion", root, 128, s)
+            model = MLP(28 * 28, 256, 10, 2, "sawtooth")
+            with torch.no_grad():
+                r["preact_std_init"].append(float(model.pre_activations(probe)[0].std()))
+            hist = train_classifier(model, tr, te, epochs, lr, log_every=10)
+            with torch.no_grad():
+                r["preact_std_trained"].append(float(model.pre_activations(probe)[0].std()))
+            r["fashion_mlp"].append(hist.epoch_test_acc[-1])
+            r["final_train_loss"].append(float(np.mean(hist.step_loss[-20:])))
+        out["lr_sweep"][str(lr)] = r
+        print(f"  [saw lr={lr:g}] moons={np.mean(r['moons']):.3f} spirals={np.mean(r['spirals']):.3f} "
+              f"fashion={np.mean(r['fashion_mlp']):.4f} loss={np.mean(r['final_train_loss']):.3f} "
+              f"preact std {np.mean(r['preact_std_init']):.2f} -> {np.mean(r['preact_std_trained']):.2f}", flush=True)
+    for a in acts_for_descent:
+        out["descent"][a] = _descent_fraction(a, root)
+        print(f"  [descent {a:9s}] " + " ".join(f"eta={k}: {v['frac_decrease']:.2f}" for k, v in out["descent"][a].items()),
+              flush=True)
     return out

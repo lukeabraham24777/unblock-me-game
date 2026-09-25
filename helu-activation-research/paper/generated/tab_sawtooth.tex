@@ -1,0 +1,12 @@
+\begin{tabular}{lcccccc}
+\toprule
+Activation & $\sin 3x$ MSE & $x^2$ MSE & Moons (\%) & Spirals (\%) & Fashion-MNIST (\%) & $R^2$ \\
+\midrule
+Sawtooth & 0.4904 & 1.4809 & 50.2 & 54.6 & 10.10 $\pm$ 0.10 & 0.3939 \\
+\midrule
+ReLU & 0.0003 & 0.0001 & 98.7 & 99.6 & 88.14 & 0.9574 \\
+GELU & 0.0002 & 0.0000 & 98.4 & 99.6 & 88.16 & 0.9538 \\
+HeLU & 0.3695 & 1.1113 & 88.0 & 63.0 & 83.33 & 1.0000 \\
+Identity (linear control) & 0.4364 & 1.4361 & 87.7 & 64.9 & 83.33 & 1.0000 \\
+\bottomrule
+\end{tabular}

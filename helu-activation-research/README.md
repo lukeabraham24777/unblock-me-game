@@ -59,6 +59,8 @@ Experiments (all CPU, seeded):
    Run alone with `python run_all.py variants`.
 10. `variant_occupancy` – band occupancy and linear-fit `R^2` on Fashion-MNIST for the original notch
     and the three widened variants (explains why only the half-line variant becomes non-linear).
-11. `stair` – the staircase `y = 2*floor(x/2)` (value `k` on each `[k, k+2)`), exactly as defined
-    (zero gradient almost everywhere) and with a straight-through estimator, on the same tasks as
-    the variants. See `Stair` in `helu_research/activations.py`.
+11. `sawtooth` – the periodic ramp `y = x/2 - floor(x/2)` (a straight line from `(k, 0)` to
+    `(k+2, 1)` on each `[k, k+2)`) on the same tasks as the variants. See `Sawtooth` in
+    `helu_research/activations.py`.
+12. `sawtooth_diag` – learning-rate sweep, pre-activation drift and a descent-direction test for the
+    sawtooth (why it never leaves chance).

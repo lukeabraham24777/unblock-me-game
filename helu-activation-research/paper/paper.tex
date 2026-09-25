@@ -17,7 +17,7 @@
 \graphicspath{{../figures/}}
 \input{generated/macros.tex}
 \IfFileExists{generated/macros_variants.tex}{\input{generated/macros_variants.tex}}{}
-\IfFileExists{generated/macros_stair.tex}{\input{generated/macros_stair.tex}}{}
+\IfFileExists{generated/macros_sawtooth.tex}{\input{generated/macros_sawtooth.tex}}{}
 
 \newtheorem{proposition}{Proposition}
 \newcommand{\helu}{\mathrm{HeLU}}
@@ -50,9 +50,10 @@ limits of deep linear networks. The one setting in which HeLU comes within a poi
 the convolutional network, where max-pooling supplies the non-linearity that the activation does not,
 and the linear control comes equally close there. An ablation over sixteen variants of the notch
 (moved, deepened, or widened) shows that the deficit is a property of the notch design rather than of
-its particular constants, and a piecewise-constant staircase function, tested as a further
-alternative, fails for the opposite reason: it is too coarse and, as defined, has no gradient. All
-code, raw results, and figures are released alongside this document.
+its particular constants, and a periodic sawtooth function, tested as a further alternative, fails
+differently again: it is expressive but its constant slope makes the gradient blind to which period a
+unit is in, and training never leaves chance. All code, raw results, and figures are released
+alongside this document.
 \end{abstract}
 
 \section{Introduction}
@@ -166,11 +167,13 @@ unequal-variance $t$-test.
         wide symmetric band around zero ($[-0.68,0.68]$ at scale $0.5$). Each variant is run under
         the E2 protocol on $\sin 3x$ and $x^2$, the E3 protocol on moons and spirals, and the E4
         Fashion-MNIST MLP protocol for 3 epochs, all with 3 seeds.
-  \item[E10: Staircase function.] The function that equals $k$ on each interval $[k,k+2)$ for
-        $k\in 2\mathbb Z$, i.e.\ $S(x)=2\lfloor x/2\rfloor$, run under the E9 protocol in two forms:
-        exactly as defined, and with a straight-through estimator (STE) in which the backward pass
-        treats $S$ as the identity. We also record the $R^2$ of a linear fit to the trained
-        Fashion-MNIST network and the gradient norm reaching the first hidden layer at initialisation.
+  \item[E10: Sawtooth function.] The function that, on each interval $[k,k+2)$ for $k\in 2\mathbb Z$,
+        rises linearly from $(k,0)$ to $(k+2,1)$, i.e.\ $T(x)=x/2-\lfloor x/2\rfloor$. It is run under the
+        E9 protocol, and we additionally record the $R^2$ of a linear fit to the trained Fashion-MNIST
+        network, a learning-rate sweep over $\{10^{-2},10^{-3},10^{-4},10^{-5}\}$ with the standard
+        deviation of first-layer pre-activations before and after training, and a descent-direction test:
+        on 50 mini-batches at initialisation, a plain gradient step of size $\eta$ is taken and we record
+        whether the batch loss actually decreased.
 \end{description}
 
 \section{Results}
@@ -434,54 +437,79 @@ exploiting the edges. Where a bounded band ends, the function returns to the ide
 network can always find a linear solution by arranging for that.
 }{\emph{(Variant results pending: run \texttt{python run\_all.py variants} and rebuild.)}}
 
-\IfFileExists{generated/tab_stair.tex}{%
-\subsection{A staircase function}
-\label{sec:stair}
+\IfFileExists{generated/tab_sawtooth.tex}{%
+\subsection{A sawtooth function}
+\label{sec:sawtooth}
 
 \begin{figure}[t]
   \centering
-  \includegraphics[width=\linewidth]{fig_stair.pdf}
-  \caption{E10. Left: the staircase $S(x)=2\lfloor x/2\rfloor$ (filled and open circles mark the
-  closed and open ends of each step; dotted line is $y=x$). Middle: seed-0 fits to $\sin 3x$ with the
-  exact staircase and with the straight-through estimator. Right: spirals decision functions for the
-  same two networks, with mean test accuracy over 3 seeds.}
-  \label{fig:stair}
+  \includegraphics[width=\linewidth]{fig_sawtooth.pdf}
+  \caption{E10. From left: the sawtooth $T(x)=x/2-\lfloor x/2\rfloor$ (filled and open circles mark the
+  closed and open ends of each ramp); the seed-0 fit to $\sin 3x$ (target dotted); the spirals decision
+  function; test accuracy versus learning rate on the three classification tasks (dotted line is chance
+  on Fashion-MNIST); and the standard deviation of first-layer pre-activations on Fashion-MNIST before
+  and after training (the shaded band is one period of $T$).}
+  \label{fig:sawtooth}
 \end{figure}
 
 \begin{table}[t]
   \centering\small
-  \caption{E10: the staircase function against the main baselines (means over 3 seeds; Fashion-MNIST
-  also shows sd). $R^2$ is the linear-fit coefficient of the trained Fashion-MNIST network;
-  $\|\nabla W_1\|$ is the norm of the gradient reaching the first hidden layer's weights on the first
-  training batch.}
-  \label{tab:stair}
-  \resizebox{\linewidth}{!}{\input{generated/tab_stair.tex}}
+  \caption{E10: the sawtooth against the main baselines at the default learning rates (means over 3
+  seeds; Fashion-MNIST also shows sd). $R^2$ is the linear-fit coefficient of the trained Fashion-MNIST
+  network.}
+  \label{tab:sawtooth}
+  \resizebox{\linewidth}{!}{\input{generated/tab_sawtooth.tex}}
 \end{table}
 
-The final function we consider is not a notch at all: on each interval $[k,k+2)$, $k$ an even
-integer, the output is the interval's left endpoint, $S(x)=2\lfloor x/2\rfloor$
-(Figure~\ref{fig:stair}, left). $S$ is piecewise constant, so its derivative is zero everywhere except
-at the jumps, where it is undefined. Under ordinary backpropagation no gradient reaches any layer
-below an $S$ activation. Table~\ref{tab:stair} confirms this directly: the gradient norm at the first
-hidden layer is exactly $0$. The exact staircase therefore trains only its output layer, on top of
-\emph{random} quantised features fixed at initialisation. Because those features are non-linear (a
-random threshold at $0$ and at $\pm2$), this random-feature model is not useless: it reaches
-\accStairMoons\% on moons and \accStairSpirals\% on spirals, and fits $\sin 3x$ with MSE $0.016$
-(Figure~\ref{fig:stair}, middle). On Fashion-MNIST, however, the frozen random features give
-\accStairFashion\%, nine points below the linear control, and the piecewise-constant fits and
-boundaries in Figure~\ref{fig:stair} show the coarse, blocky structure that a width-2 staircase
-imposes.
+\begin{table}[t]
+  \centering\small
+  \caption{E10 diagnostics. Left: sawtooth learning-rate sweep (3 seeds; Fashion-MNIST after 3 epochs,
+  chance is $10\%$; ``final train loss'' is the last 20 mini-batches, chance is $\ln 10\approx2.303$).
+  Right: percentage of 50 initial mini-batches on which a gradient step of size $\eta$ reduced the batch
+  loss.}
+  \label{tab:sawtooth-diag}
+  \begin{minipage}[t]{0.62\linewidth}\centering
+    \resizebox{\linewidth}{!}{\input{generated/tab_sawtooth_lr.tex}}
+  \end{minipage}\hfill
+  \begin{minipage}[t]{0.34\linewidth}\centering
+    \resizebox{\linewidth}{!}{\input{generated/tab_sawtooth_descent.tex}}
+  \end{minipage}
+\end{table}
 
-Giving $S$ a straight-through gradient, the standard remedy for quantised activations, lets the hidden
-layers train. This improves every task: \accStairSteMoons\% on moons, \accStairSteSpirals\% on
-spirals, and \accStairSteFashion\% on Fashion-MNIST. But the Fashion-MNIST figure is still one point
-below the linear control and six below ReLU, and the trained network is nearly linear
-($R^2=\rTwoStairSte$). With pre-activations of order $0.6$ at initialisation, almost every unit sees
-inputs in $[-2,2)$, where $S$ takes only the two values $-2$ and $0$; the activation acts as a
-one-bit quantiser of the sign of each pre-activation, and the information the network can pass
-between layers is limited accordingly. The staircase is thus a different failure from the notch. HeLU
-fails because its non-linearity is too small to matter; the staircase fails because its non-linearity
-is too coarse, and because as defined it cannot be trained by gradient descent at all.
+The final function we consider is periodic: on each interval $[k,k+2)$ with $k$ an even integer,
+the output is a straight line from $(k,0)$ to $(k+2,1)$, i.e.\ $T(x)=x/2-\lfloor x/2\rfloor$
+(Figure~\ref{fig:sawtooth}, left). Its derivative is $1/2$ everywhere except at the even integers,
+where it drops by $1$. Unlike the notch, $T$ is bounded, strongly non-linear, and non-monotone, so a
+priori it is the kind of function that could give a network real expressive power.
+
+In practice it does not train at all. At the default learning rates, the sawtooth network reaches
+\accSawMoons\% on moons, \accSawSpirals\% on spirals, and \accSawFashion\% on Fashion-MNIST, which is
+chance on every task, and its $\sin 3x$ MSE (\mseSawSin) is worse than the linear control's
+(Table~\ref{tab:sawtooth}, Figure~\ref{fig:sawtooth}). The learning-rate sweep in
+Table~\ref{tab:sawtooth-diag} rules out a simple step-size problem: on Fashion-MNIST the training loss
+stays at $\ln 10$ for every learning rate from $10^{-2}$ to $10^{-5}$, and the best result on any task
+is \sawBestMoons\% on moons at $\eta=\sawBestMoonsLr$, still far below the linear control.
+
+The failure is not one of gradient \emph{direction} in the local sense. The descent test shows that at
+initialisation a small gradient step reduces the batch loss on \sawDescentLow--$100\%$ of
+mini-batches, against $100\%$ for ReLU, HeLU, and the identity. The gradient is locally correct; it is
+globally uninformative. Because $T$ has the same slope $1/2$ at every point of every period, the
+gradient with respect to a pre-activation never depends on where in the period that pre-activation
+lies, so nothing in the gradient signals that a unit has wrapped around a discontinuity. The last
+column of Table~\ref{tab:sawtooth-diag} shows the consequence: at $\eta=10^{-3}$ the standard
+deviation of first-layer pre-activations grows from $0.6$ at initialisation to about \sawDriftDefault{}
+after three epochs, spanning hundreds of periods of $T$, and the drift scales with the learning rate.
+Each step is a descent step for the current mini-batch, but the weights drift monotonically through
+period after period, the features seen by the next layer change chaotically from step to step, and no
+consistent representation is ever formed. The one-dimensional fit in Figure~\ref{fig:sawtooth} shows
+the same pathology in miniature: a dense, high-frequency oscillation rather than a curve.
+
+The sawtooth therefore fails for a third, distinct reason. HeLU is too nearly linear for its
+non-linearity to matter; the widened notches are escaped because their non-linearity is local; and
+the sawtooth is expressive enough but its periodic structure decouples the gradient from the position of
+each unit within a period, so gradient descent cannot navigate it. A well-behaved activation needs a
+derivative that carries information about where the unit is operating, which is exactly what the
+changing slopes of ReLU and GELU provide.
 }{}
 
 \section{Discussion}
@@ -531,9 +559,9 @@ to the baselines is one in which max-pooling supplies the non-linearity, and a n
 activation at all comes equally close there. An ablation over sixteen variants confirms that the
 problem is the notch design rather than its constants: no bounded notch, at any position or depth we
 tried, produces a non-linear network on Fashion-MNIST, and the one variant that does is no longer a
-notch. A staircase function $2\lfloor x/2\rfloor$, tested as a further alternative, cannot be trained
-by backpropagation as defined and, with a straight-through gradient, still trails the linear control
-on Fashion-MNIST.
+notch. A sawtooth function $x/2-\lfloor x/2\rfloor$, tested as a further alternative, stays at chance
+on every classification task at every learning rate we tried, because its constant slope gives the
+gradient no information about which period each unit is operating in.
 
 \section*{Reproducibility}
 
