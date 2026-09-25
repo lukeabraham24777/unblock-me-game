@@ -18,6 +18,7 @@
 \input{generated/macros.tex}
 \IfFileExists{generated/macros_variants.tex}{\input{generated/macros_variants.tex}}{}
 \IfFileExists{generated/macros_sawtooth.tex}{\input{generated/macros_sawtooth.tex}}{}
+\IfFileExists{generated/macros_stepslope.tex}{\input{generated/macros_stepslope.tex}}{}
 
 \newtheorem{proposition}{Proposition}
 \newcommand{\helu}{\mathrm{HeLU}}
@@ -174,6 +175,12 @@ unequal-variance $t$-test.
         deviation of first-layer pre-activations before and after training, and a descent-direction test:
         on 50 mini-batches at initialisation, a plain gradient step of size $\eta$ is taken and we record
         whether the batch loss actually decreased.
+  \item[E11: Slope-stepping function.] The continuous piecewise-linear function whose slope on segment
+        $k=\lfloor x/W\rfloor$ is $1+\delta k$ for every integer $k$, so that the slope steps up by
+        $\delta$ at each boundary. In closed form
+        $P_{W,\delta}(x)=x+\delta\,[\,W k(k-1)/2 + k(x-kW)\,]$, a piecewise-linear approximation of
+        $x+\delta x^2/(2W)$. Run under the E9 protocol for $(W,\delta)\in\{(1,0.01),(1,0.1),(1,1),(0.1,0.1)\}$,
+        with the linear-fit $R^2$ of the trained Fashion-MNIST network.
 \end{description}
 
 \section{Results}
@@ -510,6 +517,31 @@ the sawtooth is expressive enough but its periodic structure decouples the gradi
 each unit within a period, so gradient descent cannot navigate it. A well-behaved activation needs a
 derivative that carries information about where the unit is operating, which is exactly what the
 changing slopes of ReLU and GELU provide.
+}{}
+
+\IfFileExists{generated/tab_stepslope.tex}{%
+\subsection{A slope-stepping function}
+\label{sec:stepslope}
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=\linewidth]{fig_stepslope.pdf}
+  \caption{E11. Left: $P_{W,\delta}$ for the four settings tested (dotted line is $y=x$). Middle:
+  seed-0 fits to $\sin 3x$ for the proposed setting $\delta=0.01$ and for $\delta=1$. Right: spirals
+  decision functions for the same two settings, with mean test accuracy over 3 seeds.}
+  \label{fig:stepslope}
+\end{figure}
+
+\begin{table}[t]
+  \centering\small
+  \caption{E11: the slope-stepping function against the main baselines (means over 3 seeds;
+  Fashion-MNIST also shows sd). $R^2$ is the linear-fit coefficient of the trained Fashion-MNIST
+  network.}
+  \label{tab:stepslope}
+  \resizebox{\linewidth}{!}{\input{generated/tab_stepslope.tex}}
+\end{table}
+
+%%STEPSLOPE_PROSE%%
 }{}
 
 \section{Discussion}

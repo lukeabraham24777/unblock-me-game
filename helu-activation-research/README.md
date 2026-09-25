@@ -64,3 +64,6 @@ Experiments (all CPU, seeded):
     `helu_research/activations.py`.
 12. `sawtooth_diag` – learning-rate sweep, pre-activation drift and a descent-direction test for the
     sawtooth (why it never leaves chance).
+13. `stepslope` – the continuous slope-stepping function (slope `1 + delta*k` on segment
+    `k = floor(x/W)`, so it approximates `x + delta*x^2/(2W)`), for `(W, delta)` in
+    `{(1, 0.01), (1, 0.1), (1, 1), (0.1, 0.1)}`. See `StepSlope` in `helu_research/activations.py`.

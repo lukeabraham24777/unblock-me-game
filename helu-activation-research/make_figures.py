@@ -14,7 +14,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 from matplotlib.lines import Line2D  # noqa: E402
 
-from helu_research.activations import ACT_LABEL, ACT_ORDER, HELU_VARIANTS, variant_label  # noqa: E402
+from helu_research.activations import ACT_LABEL, ACT_ORDER, HELU_VARIANTS, STEPSLOPE_VARIANTS, variant_label  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent
 RES, FIG, GEN = ROOT / "results", ROOT / "figures", ROOT / "paper" / "generated"
@@ -557,6 +557,86 @@ def table_sawtooth():
     (GEN / "macros_sawtooth.tex").write_text("\n".join(m) + "\n")
     print("wrote tab_sawtooth*")
 
+# ---------------------------------------------------------------- Figure 10: slope-stepping function
+SS_COLOR = {"ss_w1_d0.01": "#2a78d6", "ss_w1_d0.1": "#eb6834", "ss_w1_d1": "#1baf7a", "ss_w0.1_d0.1": "#eda100"}
+
+
+def ss_label(nm):
+    w, d = STEPSLOPE_VARIANTS[nm]
+    return f"$W={w:g},\\ \\delta={d:g}$"
+
+
+def fig_stepslope():
+    d = load("stepslope")
+    names = d["names"]
+    fig, axes = plt.subplots(1, 5, figsize=(7.2, 1.9))
+    # (a) shapes
+    ax = axes[0]
+    x = np.array(d["shape"]["x"])
+    for nm in names:
+        ax.plot(x, d["shape"][nm], color=SS_COLOR[nm], lw=1.3, label=ss_label(nm))
+    ax.plot(x, x, color=MUTED, lw=0.7, ls=":")
+    ax.set(xlim=(-3, 3), ylim=(-3, 5), xlabel="$x$", title="$f(x)$")
+    ax.legend(fontsize=5.5, loc="upper left", handlelength=1.0, borderpad=0.3, labelspacing=0.2)
+    # (b) sin fits for the proposed and the most curved
+    for ax, nm in zip(axes[1:3], ["ss_w1_d0.01", "ss_w1_d1"]):
+        c = d["curves"][nm]["sin(3x)"]
+        ax.plot(c["x"], c["y_true"], color=INK, lw=0.9, ls=":")
+        ax.plot(c["x"], c["fit"], color=SS_COLOR[nm], lw=1.3)
+        ax.set(xlim=(-2, 2), ylim=(-1.4, 1.4), xlabel="$x$", title=f"$\\sin 3x$, {ss_label(nm)}", )
+        ax.title.set_fontsize(8)
+    # (c) spirals for the same two
+    cmap = matplotlib.colors.LinearSegmentedColormap.from_list("div", ["#2a78d6", "#f0efec", "#e34948"])
+    for ax, nm in zip(axes[3:5], ["ss_w1_d0.01", "ss_w1_d1"]):
+        b = d["boundaries"][nm]["spirals"]
+        X, yy = np.array(b["X"]), np.array(b["y"])
+        ax.imshow(np.array(b["p"]), extent=b["extent"], origin="lower", cmap=cmap, vmin=0, vmax=1,
+                  aspect="auto", interpolation="bilinear")
+        ax.scatter(X[yy == 0, 0], X[yy == 0, 1], s=2, color="#0d366b", lw=0)
+        ax.scatter(X[yy == 1, 0], X[yy == 1, 1], s=2, color="#8a1f1f", lw=0)
+        ax.set_title(f"spirals, {ss_label(nm)}", fontsize=8)
+        ax.text(0.03, 0.03, f"acc {np.mean(d['results'][nm]['cls2d']['spirals']):.3f}", transform=ax.transAxes,
+                fontsize=7.5, color=INK, bbox=dict(boxstyle="round,pad=0.2", fc="white", ec="none", alpha=0.85))
+        ax.set_xticks([]); ax.set_yticks([])
+        for sp in ax.spines.values():
+            sp.set_visible(True); sp.set_color("#c3c2b7")
+    fig.tight_layout(w_pad=0.7)
+    save(fig, "fig_stepslope")
+
+
+def table_stepslope():
+    d = load("stepslope")
+    reg, cls, fm, lin = load("reg1d"), load("cls2d"), load("fashion_mlp"), load("linearity")
+    rows = []
+    for nm in d["names"]:
+        r = d["results"][nm]; w, dl = STEPSLOPE_VARIANTS[nm]
+        rows.append(f"{w:g} & {dl:g} & {np.mean(r['reg1d']['sin(3x)']):.4f} & {np.mean(r['reg1d']['x^2']):.4f} & "
+                    f"{100 * np.mean(r['cls2d']['moons']):.1f} & {100 * np.mean(r['cls2d']['spirals']):.1f} & "
+                    f"{100 * np.mean(r['fashion_mlp']):.2f} $\\pm$ {100 * np.std(r['fashion_mlp'], ddof=1):.2f} & "
+                    f"{np.mean(r['fashion_r2']):.4f} \\\\")
+    rows.append("\\midrule")
+    for a in ["relu", "gelu", "helu", "identity"]:
+        r2 = np.mean([q["linear_r2_trained"] for q in lin["results"][a]])
+        rows.append(f"\\multicolumn{{2}}{{l}}{{{ACT_LABEL[a]}}} & {np.mean(reg['results']['sin(3x)'][a]):.4f} & "
+                    f"{np.mean(reg['results']['x^2'][a]):.4f} & {100 * np.mean(cls['results']['moons'][a]):.1f} & "
+                    f"{100 * np.mean(cls['results']['spirals'][a]):.1f} & "
+                    f"{100 * np.mean([q['epoch_test_acc'][-1] for q in fm['runs'][a]]):.2f} & {r2:.4f} \\\\")
+    (GEN / "tab_stepslope.tex").write_text(
+        "\\begin{tabular}{llcccccc}\n\\toprule\n"
+        "$W$ & $\\delta$ & $\\sin 3x$ MSE & $x^2$ MSE & Moons (\\%) & Spirals (\\%) & Fashion-MNIST (\\%) & $R^2$ \\\\\n\\midrule\n"
+        + "\n".join(rows) + "\n\\bottomrule\n\\end{tabular}\n")
+    m = []
+    for nm, key in [("ss_w1_d0.01", "SsSmall"), ("ss_w1_d0.1", "SsMid"), ("ss_w1_d1", "SsOne"), ("ss_w0.1_d0.1", "SsFine")]:
+        r = d["results"][nm]
+        m.append(f"\\newcommand{{\\acc{key}Fashion}}{{{100 * np.mean(r['fashion_mlp']):.1f}}}")
+        m.append(f"\\newcommand{{\\acc{key}Spirals}}{{{100 * np.mean(r['cls2d']['spirals']):.1f}}}")
+        m.append(f"\\newcommand{{\\acc{key}Moons}}{{{100 * np.mean(r['cls2d']['moons']):.1f}}}")
+        m.append(f"\\newcommand{{\\mse{key}Sin}}{{{np.mean(r['reg1d']['sin(3x)']):.3f}}}")
+        m.append(f"\\newcommand{{\\rTwo{key}}}{{{np.mean(r['fashion_r2']):.4f}}}")
+    (GEN / "macros_stepslope.tex").write_text("\n".join(m) + "\n")
+    print("wrote tab_stepslope")
+
+
 # ---------------------------------------------------------------- LaTeX tables
 def tables():
     out = []
@@ -678,3 +758,6 @@ if __name__ == "__main__":
     if (RES / "sawtooth.json").exists() and (RES / "sawtooth_diag.json").exists():
         fig_sawtooth()
         table_sawtooth()
+    if (RES / "stepslope.json").exists():
+        fig_stepslope()
+        table_stepslope()

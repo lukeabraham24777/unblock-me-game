@@ -60,6 +60,8 @@ def main() -> None:
                                         steps=200 if q else 3000, epochs=1 if q else 3),
         "sawtooth_diag": lambda: E.run_sawtooth_diagnostics(DATA, seeds=(0,) if q else (0, 1, 2),
                                                             steps=200 if q else 3000, epochs=1 if q else 3),
+        "stepslope": lambda: E.run_extra(DATA, names=tuple(__import__("helu_research.activations", fromlist=["x"]).STEPSLOPE_VARIANTS),
+                                         seeds=(0,) if q else (0, 1, 2), steps=200 if q else 3000, epochs=1 if q else 3),
     }
     names = args.only or list(jobs)
     unknown = [n for n in names if n not in jobs]

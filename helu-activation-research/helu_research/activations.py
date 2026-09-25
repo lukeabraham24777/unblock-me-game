@@ -106,6 +106,43 @@ class Sawtooth(nn.Module):
         return f"period={self.period}"
 
 
+# Slope-stepping piecewise-linear function ---------------------------------
+def stepslope(x: torch.Tensor, width: float = 1.0, delta: float = 0.01) -> torch.Tensor:
+    """Continuous piecewise-linear function whose slope on segment k = floor(x / width) is 1 + delta * k,
+    for every integer k (so the slope steps up by `delta` at each boundary, and the function is convex).
+
+    Closed form: f(x) = x + delta * [ width * k (k - 1) / 2 + k (x - k * width) ],  k = floor(x / width).
+    Equivalent to a piecewise-linear approximation of x + delta * x^2 / (2 width)."""
+    k = torch.floor(x / width)
+    return x + delta * (width * k * (k - 1) / 2 + k * (x - k * width))
+
+
+class StepSlope(nn.Module):
+    def __init__(self, width: float = 1.0, delta: float = 0.01):
+        super().__init__()
+        self.width, self.delta = float(width), float(delta)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return stepslope(x, self.width, self.delta)
+
+    def extra_repr(self) -> str:
+        return f"width={self.width}, delta={self.delta}"
+
+
+# name -> (width, delta)
+STEPSLOPE_VARIANTS: dict[str, tuple[float, float]] = {
+    "ss_w1_d0.01": (1.0, 0.01),    # as proposed
+    "ss_w1_d0.1": (1.0, 0.1),
+    "ss_w1_d1": (1.0, 1.0),
+    "ss_w0.1_d0.1": (0.1, 0.1),    # same curvature as (1, 1) but ten times finer segments
+}
+
+
+def stepslope_label(name: str) -> str:
+    w, d = STEPSLOPE_VARIANTS[name]
+    return f"W={w:g}, \u03b4={d:g}"
+
+
 # Registry ----------------------------------------------------------------
 ACTIVATIONS = {
     "relu": nn.ReLU,
@@ -123,6 +160,8 @@ ACT_LABEL = {"relu": "ReLU", "gelu": "GELU", "helu": "HeLU", "identity": "Identi
 def make_activation(name: str) -> nn.Module:
     if name in HELU_VARIANTS:
         return HeLU(*HELU_VARIANTS[name])
+    if name in STEPSLOPE_VARIANTS:
+        return StepSlope(*STEPSLOPE_VARIANTS[name])
     try:
         return ACTIVATIONS[name]()
     except KeyError as e:  # pragma: no cover
@@ -134,6 +173,9 @@ def activation_fn(name: str):
     if name in HELU_VARIANTS:
         lo, hi, s = HELU_VARIANTS[name]
         return lambda t: helu(t, lo, hi, s)
+    if name in STEPSLOPE_VARIANTS:
+        w, d = STEPSLOPE_VARIANTS[name]
+        return lambda t: stepslope(t, w, d)
     return {
         "relu": F.relu,
         "gelu": F.gelu,
