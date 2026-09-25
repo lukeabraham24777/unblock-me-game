@@ -17,7 +17,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from sklearn.datasets import make_moons
 
-from .activations import ACT_ORDER, HELU_HI, HELU_LO, activation_fn
+from .activations import ACT_ORDER, HELU_HI, HELU_LO, activation_fn, make_activation
 from .models import MLP, SmallCNN
 
 DEVICE = torch.device("cpu")
@@ -725,41 +725,110 @@ def run_pwl_final(root: str, acts, mlp_seeds=(0, 1, 2, 3, 4), cnn_seeds=(0, 1, 2
     return out
 
 
-def run_kernel_cost(names, n: int = 4_000_000, reps: int = 20) -> dict:
-    """Forward+backward time of the activation alone, eager and torch.compile'd, plus a fused
-    MLP-block benchmark (Linear -> act -> Linear) compiled, which is what a user of the activation pays."""
-    x = torch.randn(n, requires_grad=True)
-    out: dict = {"n": n, "reps": reps, "results": {}}
+def run_kernel_cost(names, n: int = 4_000_000, reps: int = 30, warmup: int = 10) -> dict:
+    """Cost of the activation alone, per call on an n-element tensor:
+      * eager forward, eager forward+backward,
+      * torch.compile'd (dynamic=False) forward and forward+backward,
+    plus a compiled Linear(1024,1024) -> act -> Linear(1024,1024) block at batch 4096 (fwd+bwd).
+    Medians over `reps` after `warmup` calls; recompile counters are recorded so a recompiling function
+    is visible rather than silently slow."""
+    import torch._dynamo as dynamo
+    from torch._dynamo.utils import counters
 
-    def bench(f, inp):
-        for _ in range(3):
-            y = f(inp); y.sum().backward(); inp.grad = None
+    torch.manual_seed(0)
+    x_fb = torch.randn(n, requires_grad=True)
+    x_f = torch.randn(n)
+    xb = torch.randn(4096, 1024, requires_grad=True)
+    out: dict = {"n": n, "reps": reps, "warmup": warmup, "results": {}}
+
+    def timed(fn, reps_):
         ts = []
-        for _ in range(reps):
-            t0 = time.perf_counter()
-            y = f(inp); y.sum().backward(); inp.grad = None
-            ts.append(time.perf_counter() - t0)
+        for _ in range(reps_):
+            t0 = time.perf_counter(); fn(); ts.append(time.perf_counter() - t0)
         return 1e3 * float(np.median(ts))
 
-    xb = torch.randn(4096, 1024)
+    def fwd_only(f, inp):
+        def run():
+            with torch.no_grad():
+                f(inp)
+        return run
+
+    def fwd_bwd(f, inp):
+        # Pre-allocated upstream gradient and in-place accumulation into an existing .grad buffer, so the
+        # timing is not dominated by allocating and first-touching fresh 16 MB tensors on every call.
+        g = torch.ones_like(inp)
+        if inp.grad is None:
+            inp.grad = torch.zeros_like(inp)
+
+        def run():
+            y = f(inp); y.backward(g); inp.grad.zero_()
+        return run
+
     for nm in names:
         f = activation_fn(nm)
-        rec = {"eager_ms": bench(f, x)}
+        rec: dict = {}
+        for _ in range(warmup): fwd_only(f, x_f)()
+        rec["eager_fwd_ms"] = timed(fwd_only(f, x_f), reps)
+        for _ in range(warmup): fwd_bwd(f, x_fb)()
+        rec["eager_fwdbwd_ms"] = timed(fwd_bwd(f, x_fb), reps)
+        dynamo.reset(); counters.clear()
         try:
-            fc = torch.compile(f)
-            rec["compiled_ms"] = bench(fc, x)
+            fc = torch.compile(f, dynamic=False)
+            for _ in range(warmup): fwd_only(fc, x_f)()
+            rec["compiled_fwd_ms"] = timed(fwd_only(fc, x_f), reps)
+            for _ in range(warmup): fwd_bwd(fc, x_fb)()
+            rec["compiled_fwdbwd_ms"] = timed(fwd_bwd(fc, x_fb), reps)
+            rec["recompiles"] = int(sum(counters["stats"].values())) if "stats" in counters else 0
+            rec["frames_compiled"] = int(counters["frames"].get("ok", 0)) if "frames" in counters else 0
         except Exception as e:  # pragma: no cover
-            rec["compiled_ms"] = float("nan"); rec["compile_error"] = str(e)[:100]
-        # block benchmark: two 1024x1024 linears around the activation, batch 4096, compiled
+            rec["compiled_fwd_ms"] = rec["compiled_fwdbwd_ms"] = float("nan"); rec["compile_error"] = str(e)[:100]
+        dynamo.reset()
         set_seed(0)
         block = torch.nn.Sequential(torch.nn.Linear(1024, 1024), make_activation(nm), torch.nn.Linear(1024, 1024))
         try:
-            bc = torch.compile(block)
-            xb_ = xb.clone().requires_grad_(True)
-            rec["block_compiled_ms"] = bench(bc, xb_)
-        except Exception as e:  # pragma: no cover
+            bc = torch.compile(block, dynamic=False)
+            for _ in range(warmup): fwd_bwd(bc, xb)()
+            rec["block_compiled_ms"] = timed(fwd_bwd(bc, xb), reps)
+        except Exception:  # pragma: no cover
             rec["block_compiled_ms"] = float("nan")
+        for _ in range(warmup): fwd_bwd(block, xb)()
+        rec["block_eager_ms"] = timed(fwd_bwd(block, xb), reps)
         out["results"][nm] = rec
-        print(f"  [cost {nm:14s}] eager={rec['eager_ms']:.2f}ms compiled={rec['compiled_ms']:.2f}ms "
-              f"block={rec['block_compiled_ms']:.1f}ms", flush=True)
+        print(f"  [cost {nm:14s}] eager fwd={rec['eager_fwd_ms']:.2f} fwd+bwd={rec['eager_fwdbwd_ms']:.2f} | "
+              f"compiled fwd={rec['compiled_fwd_ms']:.2f} fwd+bwd={rec['compiled_fwdbwd_ms']:.2f} "
+              f"(frames={rec.get('frames_compiled', '?')}) | block eager={rec['block_eager_ms']:.1f} "
+              f"compiled={rec['block_compiled_ms']:.1f}", flush=True)
+    return out
+
+
+def run_compiled_epoch_time(root: str, names=("relu", "gelu", "hardswish", "pwl_hgelu3"), seed: int = 0,
+                            warm_steps: int = 30) -> dict:
+    """End-to-end training cost: seconds per epoch of the Fashion-MNIST MLP and CNN, eager and under
+    torch.compile (model compiled, dynamic=False; the timed epoch excludes `warm_steps` warm-up steps
+    which absorb compilation)."""
+    out: dict = {"names": list(names), "results": {}}
+    tr, _ = loaders_from_cache("fashion", root, 128, seed)
+    n_batches = len(tr)
+    for nm in names:
+        rec = {}
+        for arch in ("mlp", "cnn"):
+            for mode in ("eager", "compiled"):
+                set_seed(seed)
+                model = MLP(28 * 28, 256, 10, 2, nm) if arch == "mlp" else SmallCNN(nm)
+                run_model = torch.compile(model, dynamic=False) if mode == "compiled" else model
+                opt = torch.optim.Adam(model.parameters(), lr=1e-3)
+                it = iter(tr)
+                for _ in range(warm_steps):
+                    x, y = next(it)
+                    loss = F.cross_entropy(run_model(x), y); opt.zero_grad(set_to_none=True); loss.backward(); opt.step()
+                t0 = time.perf_counter(); n = 0
+                for x, y in it:
+                    if x.shape[0] != 128:
+                        continue  # keep shapes static for the compiled model
+                    loss = F.cross_entropy(run_model(x), y); opt.zero_grad(set_to_none=True); loss.backward(); opt.step()
+                    n += 1
+                rec[f"{arch}_{mode}_s_per_epoch"] = (time.perf_counter() - t0) / n * n_batches
+        out["results"][nm] = rec
+        print(f"  [epoch {nm:12s}] MLP eager={rec['mlp_eager_s_per_epoch']:.1f}s compiled={rec['mlp_compiled_s_per_epoch']:.1f}s | "
+              f"CNN eager={rec['cnn_eager_s_per_epoch']:.0f}s compiled={rec['cnn_compiled_s_per_epoch']:.0f}s", flush=True)
     return out

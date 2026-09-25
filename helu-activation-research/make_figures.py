@@ -779,17 +779,19 @@ def fig_pwl():
     ax.tick_params(axis="y", length=0)
     ax.set(xlabel="Fashion-MNIST validation acc. (%)", title="Screen (3 ep., 3 seeds)")
     ax.grid(axis="x"); ax.set_axisbelow(True)
-    # (c) cost vs accuracy: compiled block time vs Fashion-MNIST MLP final test accuracy
+    # (c) cost vs accuracy: compiled forward kernel time vs Fashion-MNIST MLP final test accuracy
     ax = axes[2]
     pts = {"relu": ssf, "gelu": ssf, best: fin, "hardswish": fin}
     for nm, src in pts.items():
         acc = 100 * np.mean([r["epoch_test_acc"][-1] for r in src["fashion_mlp"]["runs"][nm]])
         sd = 100 * np.std([r["epoch_test_acc"][-1] for r in src["fashion_mlp"]["runs"][nm]], ddof=1)
-        t = cost["results"][nm]["block_compiled_ms"]
+        t = cost["results"][nm]["compiled_fwd_ms"]
         c = PWL_COLOR.get(nm, MUTED)
         ax.errorbar(t, acc, yerr=sd, fmt="o", ms=6, color=c, mec="white", mew=0.6, capsize=2, lw=0.8, zorder=4)
-        ax.annotate(ACT_LABEL[nm], (t, acc), textcoords="offset points", xytext=(5, 4), fontsize=6.5, color=INK2)
-    ax.set(xlabel="compiled block time (ms, fwd+bwd)", ylabel="Fashion-MNIST MLP test acc. (%)",
+        off = (5, -10) if nm == "relu" else (5, 4)
+        ax.annotate(ACT_LABEL[nm], (t, acc), textcoords="offset points", xytext=off, fontsize=6.5, color=INK2)
+    ax.set_xlim(0, 1.15 * max(cost["results"][nm]["compiled_fwd_ms"] for nm in pts))
+    ax.set(xlabel="compiled forward kernel (ms / 4M elements)", ylabel="Fashion-MNIST MLP test acc. (%)",
            title="Cost vs. accuracy")
     ax.grid(axis="both"); ax.set_axisbelow(True)
     fig.tight_layout(w_pad=1.2)
@@ -838,11 +840,23 @@ def table_pwl():
         r = cost["results"][nm]
         lab = ACT_LABEL.get(nm, "Slope-stepper (2, 1)")
         star = "$^\\ast$" if nm == best else ""
-        rows.append(f"{lab}{star} & {r['eager_ms']:.2f} & {r['compiled_ms']:.2f} & {r['block_compiled_ms']:.1f} & "
-                    f"{r['block_compiled_ms'] / g['block_compiled_ms']:.2f} \\\\")
+        rows.append(f"{lab}{star} & {r['eager_fwd_ms']:.2f} & {r['eager_fwdbwd_ms']:.1f} & {r['compiled_fwd_ms']:.2f} & "
+                    f"{r['compiled_fwdbwd_ms']:.1f} & {r['compiled_fwd_ms'] / g['compiled_fwd_ms']:.2f} \\\\")
     (GEN / "tab_kernel_cost.tex").write_text(
+        "\\begin{tabular}{lccccc}\n\\toprule\n"
+        " & \\multicolumn{2}{c}{Eager (ms)} & \\multicolumn{2}{c}{Compiled (ms)} & \\\\\n\\cmidrule(lr){2-3}\\cmidrule(lr){4-5}\n"
+        "Activation & fwd & fwd+bwd & fwd & fwd+bwd & Compiled fwd / GELU \\\\\n\\midrule\n"
+        + "\n".join(rows) + "\n\\bottomrule\n\\end{tabular}\n")
+    ep = load("epoch_time")
+    rows = []
+    for nm in ep["names"]:
+        r = ep["results"][nm]; star = "$^\\ast$" if nm == best else ""
+        rows.append(f"{ACT_LABEL[nm]}{star} & {r['mlp_eager_s_per_epoch']:.1f} & {r['mlp_compiled_s_per_epoch']:.1f} & "
+                    f"{r['cnn_eager_s_per_epoch']:.1f} & {r['cnn_compiled_s_per_epoch']:.1f} \\\\")
+    (GEN / "tab_epoch_time.tex").write_text(
         "\\begin{tabular}{lcccc}\n\\toprule\n"
-        "Activation & Eager (ms) & Compiled (ms) & Compiled block (ms) & Block time / GELU \\\\\n\\midrule\n"
+        " & \\multicolumn{2}{c}{Fashion-MNIST MLP (s/epoch)} & \\multicolumn{2}{c}{Fashion-MNIST CNN (s/epoch)} \\\\\n"
+        "\\cmidrule(lr){2-3}\\cmidrule(lr){4-5}\nActivation & eager & compiled & eager & compiled \\\\\n\\midrule\n"
         + "\n".join(rows) + "\n\\bottomrule\n\\end{tabular}\n")
     # macros
     m = [f"\\newcommand{{\\pwlBest}}{{{ACT_LABEL[best]}}}",
@@ -860,12 +874,14 @@ def table_pwl():
         for a, ak in [("gelu", "Gelu"), (best, "Best")]:
             m.append(f"\\newcommand{{\\pwlDepth{ak}{kn}}}{{{100 * np.mean(src[a]['depth']['results'][str(k)][a]):.2f}}}")
     for nm, key in [("gelu", "Gelu"), ("relu", "Relu"), ("hardswish", "Hsw"), (best, "Best")]:
-        r = cost["results"][nm]
-        m.append(f"\\newcommand{{\\cost{key}Eager}}{{{r['eager_ms']:.2f}}}")
-        m.append(f"\\newcommand{{\\cost{key}Compiled}}{{{r['compiled_ms']:.2f}}}")
-        m.append(f"\\newcommand{{\\cost{key}Block}}{{{r['block_compiled_ms']:.1f}}}")
-    m.append(f"\\newcommand{{\\costBestRatio}}{{{cost['results'][best]['block_compiled_ms'] / g['block_compiled_ms']:.2f}}}")
-    m.append(f"\\newcommand{{\\costBestKernelRatio}}{{{cost['results'][best]['compiled_ms'] / g['compiled_ms']:.2f}}}")
+        r = cost["results"][nm]; e = ep["results"][nm]
+        m.append(f"\\newcommand{{\\cost{key}EagerFwd}}{{{r['eager_fwd_ms']:.2f}}}")
+        m.append(f"\\newcommand{{\\cost{key}CompiledFwd}}{{{r['compiled_fwd_ms']:.2f}}}")
+        m.append(f"\\newcommand{{\\cost{key}CompiledFwdBwd}}{{{r['compiled_fwdbwd_ms']:.1f}}}")
+        m.append(f"\\newcommand{{\\epoch{key}CnnEager}}{{{e['cnn_eager_s_per_epoch']:.0f}}}")
+        m.append(f"\\newcommand{{\\epoch{key}CnnCompiled}}{{{e['cnn_compiled_s_per_epoch']:.0f}}}")
+    m.append(f"\\newcommand{{\\costBestFwdRatio}}{{{g['compiled_fwd_ms'] / cost['results'][best]['compiled_fwd_ms']:.1f}}}")
+    m.append(f"\\newcommand{{\\epochBestCnnRatio}}{{{100 * (1 - ep['results'][best]['cnn_compiled_s_per_epoch'] / ep['results']['gelu']['cnn_compiled_s_per_epoch']):.0f}}}")
     (GEN / "macros_pwl.tex").write_text("\n".join(m) + "\n")
     print("wrote tab_pwl_screen/final, tab_kernel_cost")
 
@@ -997,6 +1013,6 @@ if __name__ == "__main__":
     if (RES / "stepslope_tune.json").exists() and (RES / "stepslope_final.json").exists():
         fig_stepslope_tune()
         table_stepslope_tune()
-    if all((RES / f"{n}.json").exists() for n in ("pwl_screen", "pwl_final", "kernel_cost", "stepslope_final")):
+    if all((RES / f"{n}.json").exists() for n in ("pwl_screen", "pwl_final", "kernel_cost", "epoch_time", "stepslope_final")):
         fig_pwl()
         table_pwl()

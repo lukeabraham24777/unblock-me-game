@@ -59,8 +59,11 @@ unit is in, and training never leaves chance. A final continuous design whose sl
 $\delta$ per unit segment works only when $\delta$ is large enough to make the network visibly
 non-linear; at the proposed $\delta=0.01$ it is the identity in all but name. Tuned on a validation
 split, it ties GELU on a convolutional network and trails it by under a point on the MLPs, but its
-unbounded slope makes it collapse to chance at eight hidden layers. All code, raw results, and figures
-are released alongside this document.
+unbounded slope makes it collapse to chance at eight hidden layers. Bounding the slope and giving the
+function GELU's shape with three linear pieces yields a candidate that ties GELU on every benchmark, is
+depth-stable, and costs about half as much per element when compiled, but it is statistically
+indistinguishable from the existing Hardswish and slower than GELU in eager execution. All code, raw
+results, and figures are released alongside this document.
 \end{abstract}
 
 \section{Introduction}
@@ -194,7 +197,7 @@ unequal-variance $t$-test.
         and ReLU under the full E4, E5, and E6 protocols (MNIST and Fashion-MNIST MLPs for 5 epochs and
         5 seeds, the Fashion-MNIST CNN for 5 epochs and 3 seeds, and the depth sweep), with Welch
         $t$-tests. The test sets are not used for selection.
-  \item[E13: Bounded-slope piecewise-linear candidates.] Five functions of the form
+  \item[E13: Bounded-slope candidates.] \sloppy Five piecewise-linear functions of the form
         $f(x)=\sum_i c_i\,\mathrm{ReLU}(x-t_i)$ with two to four terms, each with slope bounded by
         $\sum_i c_i$: the capped slope-stepper ($W=2$, $\delta=1$, $k$ clipped to $[-1,1]$), a soft
         knee with slopes $0/0.5/1$ over $[-1,0]$, a four-step ramp from slope $0$ to $1$ over $[-4,0]$,
@@ -203,7 +206,7 @@ unequal-variance $t$-test.
         the E4--E6 protocols (ReLU and GELU rows reused from E12, which used identical seeds), and the
         cost of every function is measured three ways: forward-plus-backward on a $4\times10^6$-element
         tensor in eager PyTorch, the same under \texttt{torch.compile}, and a compiled
-        $1024\!\to\!1024\!\to\!1024$ linear--activation--linear block at batch 4096. Medians of 20
+        linear--activation--linear block with 1024 units in, hidden, and out at batch 4096. Medians of 20
         repetitions on an otherwise idle machine.
 \end{description}
 
@@ -735,7 +738,77 @@ overall''.
   \input{generated/tab_kernel_cost.tex}
 \end{table}
 
-%%PWL_PROSE%%
+\begin{table}[t]
+  \centering\small
+  \caption{End-to-end training cost: seconds per epoch of the Fashion-MNIST MLP and CNN, eager and
+  with the model under \texttt{torch.compile} (timed epoch excludes 30 warm-up steps that absorb
+  compilation; single run, seed 0, 4 CPU threads). The compiled ReLU CNN time is slower than its
+  eager time, which is consistent with the unstable compiled ReLU backward noted in
+  Table~\ref{tab:kernel-cost}; we treat it as an artefact of this PyTorch CPU build.}
+  \label{tab:epoch-time}
+  \input{generated/tab_epoch_time.tex}
+\end{table}
+
+The stated target for this final experiment was concrete: beat GELU on cost and at least nearly tie it
+on accuracy. Section~\ref{sec:stepslope-tune} showed that the unbounded slope of the tuned
+slope-stepper is what breaks it at depth and that its kernel is slower than GELU's. E13 therefore
+restricts the design to functions with bounded slope that are also cheap to evaluate: sums of two to
+four ReLU terms (Figure~\ref{fig:pwl}, left). Two of them are the slope-stepper with its slope capped;
+the others place the kinks by hand, including two that trace the shape of GELU with straight
+segments. Hardswish, the standard cheap approximation to GELU/Swish, is included as the reference that
+any such design has to beat.
+
+\paragraph{Screen.} Table~\ref{tab:pwl-screen} and Figure~\ref{fig:pwl} (middle) show that the family
+is uniformly competitive: every candidate is within a point of GELU on validation accuracy, and the two
+GELU-shaped ones are level with it (\pwlBestVal\% and its four-piece sibling, against \pwlGeluVal\% for
+GELU and \pwlHardswishVal\% for Hardswish). The three-piece version, \pwlBest{}, is selected: it is the
+cheapest of the two and the extra piece in the four-piece version buys nothing. The candidate's
+defining feature is the small negative dip on $[-2.5,0]$ with a minimum of $-0.175$ at $x=-0.75$, which
+GELU also has and ReLU lacks; the capped stepper and the knee, which are non-negative, are half a point
+behind.
+
+\paragraph{Accuracy.} Under the full protocol (Table~\ref{tab:pwl-final}) \pwlBest{} ties or edges
+GELU on every benchmark: \pwlMnistBest\% versus \pwlMnistGelu\% on MNIST ($p=\pwlMnistPGelu$),
+\pwlFashionBest\% versus \pwlFashionGelu\% on Fashion-MNIST ($p=\pwlFashionPGelu$), and
+\pwlCnnBest\% versus \pwlCnnGelu\% on the CNN ($p=\pwlCnnPGelu$). None of the differences is
+significant, which is the outcome ``nearly tie'' asks for. Because the slope is bounded by $1$, the
+depth collapse of Section~\ref{sec:stepslope-tune} is gone: at eight hidden layers the candidate reaches
+\pwlDepthBestEight\% against \pwlDepthGeluEight\% for GELU. Hardswish behaves the same way throughout,
+within noise of both.
+
+\paragraph{Cost.} Table~\ref{tab:kernel-cost} gives the kernel cost three ways, and the answer depends
+on how the function is executed.
+\begin{itemize}[nosep]
+  \item \textbf{Eager PyTorch.} A sum of three ReLUs is three activation passes plus scaling and
+        addition, each a separate kernel launch and a separate pass over memory; its forward is about
+        $14\times$ slower than GELU's single fused kernel (\costBestEagerFwd{} versus
+        \costGeluEagerFwd{} ms per $4\times10^6$ elements). In eager mode the candidate loses on cost
+        outright, and the eager CNN epoch is $\epochBestCnnEager$ s against $\epochGeluCnnEager$ s
+        (Table~\ref{tab:epoch-time}).
+  \item \textbf{Compiled.} Under \texttt{torch.compile} the three terms fuse into one elementwise
+        kernel, and the arithmetic then decides: a few comparisons and multiply-adds against an error
+        function. The compiled forward is \costBestCompiledFwd{} ms against \costGeluCompiledFwd{} ms for
+        GELU, a factor of \costBestFwdRatio, and level with ReLU (\costReluCompiledFwd{} ms) and
+        Hardswish (\costHswCompiledFwd{} ms). Compiled forward-plus-backward is also below GELU's.
+        (Compiled backward timings for the plain-ReLU-family kernels were unstable across repetitions
+        and we do not rely on them.)
+  \item \textbf{End to end.} In a compiled training loop the activation is a small share of the work,
+        so the gain shrinks: the compiled CNN epoch is \epochBestCnnCompiled{} s against
+        \epochGeluCnnCompiled{} s for GELU, about $\epochBestCnnRatio\%$ faster, and the MLP epochs are
+        indistinguishable.
+\end{itemize}
+
+\paragraph{Verdict.} Against the stated target, \pwlBest{} succeeds conditionally. On accuracy it ties
+GELU on all three benchmarks and holds up at depth. On cost it beats GELU by a factor of about
+\costBestFwdRatio{} at the kernel level and by a few percent end to end, but only when the function is
+compiled or otherwise fused; as a composition of PyTorch eager ops it is slower than GELU. The
+qualification that matters most is that Hardswish already occupies this point in the design space: it
+is at least as cheap, is a single fused kernel even in eager mode, and is statistically
+indistinguishable from \pwlBest{} on every benchmark here ($p\ge0.05$ throughout
+Table~\ref{tab:pwl-final}). What this experiment establishes is therefore not a new activation
+function but a clean demonstration of the rule the rest of the paper converged on: a cheap
+piecewise-linear function with GELU's shape, a bounded slope, and a small negative dip matches GELU's
+accuracy at ReLU's cost, and the design freedom beyond that is worth very little.
 }{}
 
 \section{Discussion}
@@ -792,7 +865,10 @@ function $x+\delta x^2/(2W)$ (piecewise-linear) trains well once $\delta$ is of 
 $(W,\delta)$ tuned on a validation split it ties GELU on the Fashion-MNIST CNN and trails it by under
 a point on the MLPs, the closest any design here comes; but at the proposed $\delta=0.01$ it is
 indistinguishable from the linear control, and its unbounded slope makes it collapse at depth 8 where
-GELU is unaffected. Across all of these designs the same rule holds: an
+GELU is unaffected. Capping that slope and tracing GELU's shape with three linear pieces gives the one
+design that meets the study's final target, tying GELU on accuracy at about half the compiled kernel
+cost, though it does not improve on Hardswish, which already sits at that point. Across all of these
+designs the same rule holds: an
 activation helps only if its slope changes appreciably over the range its inputs actually occupy, and
 the gradient reports that change.
 

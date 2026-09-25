@@ -1,0 +1,15 @@
+\begin{tabular}{lcccccc}
+\toprule
+Activation & Pieces & Fashion val.\ acc.\ (\%) & $\sin 3x$ MSE & Moons (\%) & Spirals (\%) & Epoch (s) \\
+\midrule
+ReLU-kink-2 & 2 & 87.03 $\pm$ 0.83 & 0.0002 & 98.8 & 99.5 & 1.8 \\
+Knee & 2 & 86.85 $\pm$ 1.26 & 0.0004 & 98.9 & 99.5 & 1.8 \\
+Ramp-4 & 4 & 86.89 $\pm$ 0.22 & 0.0011 & 98.8 & 94.8 & 1.8 \\
+HardGELU-3$^\ast$ & 3 & 87.35 $\pm$ 0.97 & 0.0002 & 98.8 & 99.7 & 1.7 \\
+HardGELU-4 & 4 & 87.34 $\pm$ 1.00 & 0.0004 & 98.8 & 99.7 & 1.9 \\
+\midrule
+GELU & -- & 87.28 $\pm$ 1.24 & 0.0003 & 98.5 & 99.6 & 1.5 \\
+ReLU & -- & 86.97 $\pm$ 0.97 & 0.0002 & 98.8 & 99.6 & 1.4 \\
+Hardswish & -- & 87.23 $\pm$ 1.08 & 0.0003 & 98.7 & 99.5 & 1.5 \\
+\bottomrule
+\end{tabular}

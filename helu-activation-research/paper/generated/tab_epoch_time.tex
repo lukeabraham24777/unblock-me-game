@@ -1,0 +1,12 @@
+\begin{tabular}{lcccc}
+\toprule
+ & \multicolumn{2}{c}{Fashion-MNIST MLP (s/epoch)} & \multicolumn{2}{c}{Fashion-MNIST CNN (s/epoch)} \\
+\cmidrule(lr){2-3}\cmidrule(lr){4-5}
+Activation & eager & compiled & eager & compiled \\
+\midrule
+ReLU & 1.6 & 1.7 & 13.8 & 20.4 \\
+GELU & 1.6 & 1.6 & 16.4 & 13.1 \\
+Hardswish & 1.7 & 1.7 & 15.3 & 11.5 \\
+HardGELU-3$^\ast$ & 2.0 & 1.8 & 22.8 & 12.2 \\
+\bottomrule
+\end{tabular}

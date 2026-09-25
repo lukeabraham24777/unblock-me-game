@@ -1,0 +1,17 @@
+\begin{tabular}{lccccc}
+\toprule
+ & \multicolumn{2}{c}{Eager (ms)} & \multicolumn{2}{c}{Compiled (ms)} & \\
+\cmidrule(lr){2-3}\cmidrule(lr){4-5}
+Activation & fwd & fwd+bwd & fwd & fwd+bwd & Compiled fwd / GELU \\
+\midrule
+ReLU & 0.39 & 8.4 & 0.48 & 27.1 & 0.51 \\
+GELU & 0.55 & 3.6 & 0.94 & 4.8 & 1.00 \\
+Hardswish & 0.33 & 2.7 & 0.37 & 2.7 & 0.40 \\
+Slope-stepper (2, 1) & 17.15 & 49.8 & 0.46 & 3.0 & 0.50 \\
+ReLU-kink-2 & 4.12 & 23.8 & 0.44 & 33.7 & 0.48 \\
+Knee & 4.21 & 22.9 & 0.49 & 36.1 & 0.53 \\
+Ramp-4 & 19.87 & 35.9 & 0.49 & 3.0 & 0.52 \\
+HardGELU-3$^\ast$ & 7.67 & 19.0 & 0.48 & 3.5 & 0.51 \\
+HardGELU-4 & 12.02 & 33.3 & 0.53 & 3.0 & 0.57 \\
+\bottomrule
+\end{tabular}

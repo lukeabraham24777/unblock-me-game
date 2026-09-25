@@ -77,7 +77,8 @@ def main() -> None:
         "kernel_cost": lambda: E.run_kernel_cost(
             ("relu", "gelu", "hardswish", "ss_w2_d1") + tuple(
                 __import__("helu_research.activations", fromlist=["x"]).PWL_FAMILY),
-            n=100_000 if q else 4_000_000, reps=3 if q else 20),
+            n=100_000 if q else 4_000_000, reps=3 if q else 30),
+        "epoch_time": lambda: E.run_compiled_epoch_time(DATA, warm_steps=5 if q else 30),
     }
     names = args.only or list(jobs)
     unknown = [n for n in names if n not in jobs]
