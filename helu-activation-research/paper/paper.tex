@@ -56,8 +56,10 @@ its particular constants, and a periodic sawtooth function, tested as a further 
 differently again: it is expressive but its constant slope makes the gradient blind to which period a
 unit is in, and training never leaves chance. A final continuous design whose slope steps up by
 $\delta$ per unit segment works only when $\delta$ is large enough to make the network visibly
-non-linear; at the proposed $\delta=0.01$ it is the identity in all but name. All code, raw results,
-and figures are released alongside this document.
+non-linear; at the proposed $\delta=0.01$ it is the identity in all but name. Tuned on a validation
+split, it ties GELU on a convolutional network and trails it by under a point on the MLPs, but its
+unbounded slope makes it collapse to chance at eight hidden layers. All code, raw results, and figures
+are released alongside this document.
 \end{abstract}
 
 \section{Introduction}
@@ -626,7 +628,57 @@ both safe by that criterion and useful.
   \resizebox{\linewidth}{!}{\input{generated/tab_stepslope_final.tex}}
 \end{table}
 
-%%STEPSLOPE_TUNE_PROSE%%
+Section~\ref{sec:stepslope} showed that the slope-stepping function needs curvature of order one to
+work. E12 asks whether, with its two constants tuned, it can match GELU. To keep the comparison honest
+the tuning uses a validation split of the training set, the test sets are touched only once for the
+head-to-head, and GELU and ReLU are run under the identical validation protocol so that the
+comparison is not between a tuned function and untuned baselines on different data.
+
+\paragraph{Tuning.} Figure~\ref{fig:stepslope-tune} (left) and Table~\ref{tab:stepslope-tune} show
+the grid. The landscape is simple: validation accuracy is best along the diagonal $\delta/W\approx0.5$
+to $1$ and falls off on either side. Too little curvature ($\delta/W=0.25$) leaves accuracy a point
+lower; too much ($\delta/W\ge2$) makes training unstable, with rising training loss and seed variance
+of several points, and at $(W,\delta)=(0.5,4)$ the loss diverges outright. The selected setting is
+$W=\ssBestW$, $\delta=\ssBestDelta$, with \ssBestVal\% validation accuracy against \geluVal\% for GELU
+and \reluVal\% for ReLU under the same protocol. On the toy problems every grid point is already at
+the ReLU/GELU level, so the toys do not discriminate here.
+
+\paragraph{Head-to-head.} Table~\ref{tab:stepslope-final} and Figure~\ref{fig:stepslope-tune} (right)
+give the result under the full protocol. The tuned slope-stepper is a competitive activation in
+shallow networks and an unusable one in deep networks.
+\begin{itemize}[nosep]
+  \item On the Fashion-MNIST CNN it ties GELU exactly (\finalCnnSs\% versus \finalCnnGelu\%,
+        $p=\finalCnnPGelu$) and is ahead of ReLU (\finalCnnRelu\%).
+  \item On the MLPs it is slightly but consistently behind: \finalMnistSs\% versus \finalMnistGelu\%
+        on MNIST ($p=\finalMnistPGelu$) and \finalFashionSs\% versus \finalFashionGelu\% on
+        Fashion-MNIST ($p=\finalFashionPGelu$). The gaps are under one point but significant at the
+        $0.05$ level with five seeds, and the slope-stepper's seed variance is the largest of the three.
+  \item In the depth sweep it is level with the baselines at one and two hidden layers
+        (\depthSsTwo\% versus \depthGeluTwo\% for GELU at depth 2, $p=0.28$), degrades sharply and erratically at four
+        (\depthSsFour\% with a seed spread of twelve points), and collapses to chance at eight
+        (\depthSsEight\%), where GELU still reaches \depthGeluEight\%.
+\end{itemize}
+
+\paragraph{Why it breaks with depth.} The function is convex and unbounded with a slope that grows
+without limit: on segment $k$ the slope is $1+k$ for the selected setting. A layer's outputs are
+therefore larger and more spread out than its inputs whenever the inputs reach the outer segments,
+and the next layer sees pre-activations that reach them more often still. GELU, ReLU, and every
+activation in common use have slope bounded by a constant near $1$, which is what keeps signal scale
+stable through depth. The slope-stepper has no such bound, and with four or more layers the
+forward pass amplifies until training fails. Bounding the slope (capping $k$, or applying the stepping
+only on one side) would be the natural fix, but it would also move the function toward the
+piecewise-linear convex shapes that already exist in the literature.
+
+\paragraph{Cost.} The selected setting is also slower: with a floor and several multiplies per
+element, the CNN epoch takes about $2.4\times$ as long as with GELU in our PyTorch CPU
+implementation (per-run wall times are in the raw results).
+
+\paragraph{Verdict.} With $(W,\delta)=(2,1)$ the slope-stepping function is the first design in this
+study that is a genuine alternative to GELU on some benchmarks: it ties GELU on the CNN and comes
+within a point on the MLPs. It does not beat GELU anywhere, it is significantly behind on both MLP
+benchmarks, and its unbounded slope makes it fail at depths where GELU is unaffected. Against the
+original hypothesis of superiority, the tuned result is ``competitive in shallow networks, worse
+overall''.
 }{}
 
 \section{Discussion}
@@ -679,9 +731,11 @@ tried, produces a non-linear network on Fashion-MNIST, and the one variant that 
 notch. A sawtooth function $x/2-\lfloor x/2\rfloor$, tested as a further alternative, stays at chance
 on every classification task at every learning rate we tried, because its constant slope gives the
 gradient no information about which period each unit is operating in. A continuous slope-stepping
-function $x+\delta x^2/(2W)$ (piecewise-linear) trains well once $\delta$ is of order one, reaching
-within two points of ReLU on Fashion-MNIST, but at the proposed $\delta=0.01$ it is
-indistinguishable from the linear control. Across all of these designs the same rule holds: an
+function $x+\delta x^2/(2W)$ (piecewise-linear) trains well once $\delta$ is of order one, and with
+$(W,\delta)$ tuned on a validation split it ties GELU on the Fashion-MNIST CNN and trails it by under
+a point on the MLPs, the closest any design here comes; but at the proposed $\delta=0.01$ it is
+indistinguishable from the linear control, and its unbounded slope makes it collapse at depth 8 where
+GELU is unaffected. Across all of these designs the same rule holds: an
 activation helps only if its slope changes appreciably over the range its inputs actually occupy, and
 the gradient reports that change.
 
