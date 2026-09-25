@@ -69,6 +69,15 @@ def main() -> None:
         "stepslope_final": lambda: E.run_stepslope_final(
             DATA, best=json.load(open(RESULTS / "stepslope_tune.json"))["best"],
             mlp_seeds=(0,) if q else (0, 1, 2, 3, 4), cnn_seeds=(0,) if q else (0, 1, 2), epochs=1 if q else 5),
+        "pwl_screen": lambda: E.run_pwl_screen(DATA, seeds=(0,) if q else (0, 1, 2), epochs=1 if q else 3,
+                                               steps=200 if q else 3000),
+        "pwl_final": lambda: E.run_pwl_final(
+            DATA, acts=(json.load(open(RESULTS / "pwl_screen.json"))["best"], "hardswish"),
+            mlp_seeds=(0,) if q else (0, 1, 2, 3, 4), cnn_seeds=(0,) if q else (0, 1, 2), epochs=1 if q else 5),
+        "kernel_cost": lambda: E.run_kernel_cost(
+            ("relu", "gelu", "hardswish", "ss_w2_d1") + tuple(
+                __import__("helu_research.activations", fromlist=["x"]).PWL_FAMILY),
+            n=100_000 if q else 4_000_000, reps=3 if q else 20),
     }
     names = args.only or list(jobs)
     unknown = [n for n in names if n not in jobs]

@@ -20,6 +20,7 @@
 \IfFileExists{generated/macros_sawtooth.tex}{\input{generated/macros_sawtooth.tex}}{}
 \IfFileExists{generated/macros_stepslope.tex}{\input{generated/macros_stepslope.tex}}{}
 \IfFileExists{generated/macros_stepslope_tune.tex}{\input{generated/macros_stepslope_tune.tex}}{}
+\IfFileExists{generated/macros_pwl.tex}{\input{generated/macros_pwl.tex}}{}
 
 \newtheorem{proposition}{Proposition}
 \newcommand{\helu}{\mathrm{HeLU}}
@@ -193,6 +194,17 @@ unequal-variance $t$-test.
         and ReLU under the full E4, E5, and E6 protocols (MNIST and Fashion-MNIST MLPs for 5 epochs and
         5 seeds, the Fashion-MNIST CNN for 5 epochs and 3 seeds, and the depth sweep), with Welch
         $t$-tests. The test sets are not used for selection.
+  \item[E13: Bounded-slope piecewise-linear candidates.] Five functions of the form
+        $f(x)=\sum_i c_i\,\mathrm{ReLU}(x-t_i)$ with two to four terms, each with slope bounded by
+        $\sum_i c_i$: the capped slope-stepper ($W=2$, $\delta=1$, $k$ clipped to $[-1,1]$), a soft
+        knee with slopes $0/0.5/1$ over $[-1,0]$, a four-step ramp from slope $0$ to $1$ over $[-4,0]$,
+        and three- and four-piece linear approximations of GELU. All are screened under the E12
+        validation protocol together with GELU, ReLU, and Hardswish, the best is run head-to-head under
+        the E4--E6 protocols (ReLU and GELU rows reused from E12, which used identical seeds), and the
+        cost of every function is measured three ways: forward-plus-backward on a $4\times10^6$-element
+        tensor in eager PyTorch, the same under \texttt{torch.compile}, and a compiled
+        $1024\!\to\!1024\!\to\!1024$ linear--activation--linear block at batch 4096. Medians of 20
+        repetitions on an otherwise idle machine.
 \end{description}
 
 \section{Results}
@@ -679,6 +691,51 @@ within a point on the MLPs. It does not beat GELU anywhere, it is significantly 
 benchmarks, and its unbounded slope makes it fail at depths where GELU is unaffected. Against the
 original hypothesis of superiority, the tuned result is ``competitive in shallow networks, worse
 overall''.
+}{}
+
+\IfFileExists{generated/tab_pwl_final.tex}{%
+\subsection{Bounded-slope candidates: cheaper than GELU, and how close?}
+\label{sec:pwl}
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=\linewidth]{fig_pwl.pdf}
+  \caption{E13. Left: the five piecewise-linear candidates against GELU (the selected one is drawn
+  solid). Middle: screening validation accuracy (large marker is the mean, small dots are seeds,
+  dotted line is GELU). Right: compiled linear--activation--linear block time against final
+  Fashion-MNIST MLP test accuracy for the selected candidate and the three references; whiskers are
+  $\pm1$ sd over 5 seeds.}
+  \label{fig:pwl}
+\end{figure}
+
+\begin{table}[t]
+  \centering\small
+  \caption{E13 screen (validation split of Fashion-MNIST, 3 epochs, 3 seeds; toy tasks as in E9).
+  ``Pieces'' is the number of ReLU terms. The selected candidate is starred. ``Epoch'' is eager
+  wall-clock seconds per epoch of the Fashion-MNIST MLP.}
+  \label{tab:pwl-screen}
+  \resizebox{\linewidth}{!}{\input{generated/tab_pwl_screen.tex}}
+\end{table}
+
+\begin{table}[t]
+  \centering\small
+  \caption{E13 head-to-head under the main protocols (5 seeds for the MLPs, 3 for the CNN and depth
+  rows). ReLU and GELU rows are the E12 runs, which used the same seeds. Welch $p$-values compare the
+  selected candidate with GELU and with Hardswish.}
+  \label{tab:pwl-final}
+  \resizebox{\linewidth}{!}{\input{generated/tab_pwl_final.tex}}
+\end{table}
+
+\begin{table}[t]
+  \centering\small
+  \caption{Kernel cost, medians of 20 repetitions: forward-plus-backward of the activation alone on
+  $4\times10^6$ elements (eager and compiled), and a compiled $1024\to1024\to1024$
+  linear--activation--linear block at batch 4096. The last column is the block time relative to GELU.}
+  \label{tab:kernel-cost}
+  \input{generated/tab_kernel_cost.tex}
+\end{table}
+
+%%PWL_PROSE%%
 }{}
 
 \section{Discussion}

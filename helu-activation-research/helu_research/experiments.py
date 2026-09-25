@@ -674,3 +674,92 @@ def run_stepslope_final(root: str, best: str, acts_ref=("relu", "gelu"), mlp_see
     out["fashion_cnn"] = run_image("fashion", "cnn", root, seeds=cnn_seeds, epochs=epochs, acts=acts)
     out["depth"] = run_depth_sweep(root, seeds=(0, 1, 2), epochs=3, acts=acts)
     return out
+
+
+# --------------------------------------------------------------------------
+# Experiment 14: bounded-slope piecewise-linear candidates: screen, head-to-head, and kernel cost
+# --------------------------------------------------------------------------
+def _screen_one(nm: str, root: str, seeds, epochs, steps, hidden, depth, lr, image_hidden, image_lr) -> dict:
+    r: dict = {"val_acc": [], "final_train_loss": [], "sin": [], "moons": [], "spirals": [], "epoch_time_s": []}
+    for s in seeds:
+        set_seed(s)
+        tr, va = fashion_trainval_loaders(root, 128, s)
+        model = MLP(28 * 28, image_hidden, 10, 2, nm)
+        hist = train_classifier(model, tr, va, epochs, image_lr, log_every=10)
+        r["val_acc"].append(hist.epoch_test_acc[-1])
+        r["final_train_loss"].append(float(np.mean(hist.step_loss[-20:])))
+        r["epoch_time_s"].append(hist.wall_time_s / epochs)
+        r["sin"].append(_train_reg1d_one(nm, "sin(3x)", s, steps, hidden, depth, lr))
+        r["moons"].append(_train_cls2d_one(nm, "moons", s, steps, hidden, depth, lr))
+        r["spirals"].append(_train_cls2d_one(nm, "spirals", s, steps, hidden, depth, lr))
+    return r
+
+
+def run_pwl_screen(root: str, names=None, reference=("gelu", "relu", "hardswish"), seeds=(0, 1, 2), epochs: int = 3,
+                   steps: int = 3000, hidden: int = 64, depth: int = 2, lr: float = 3e-3, image_hidden: int = 256,
+                   image_lr: float = 1e-3) -> dict:
+    from .activations import PWL_FAMILY
+
+    names = list(names or PWL_FAMILY)
+    out: dict = {"names": names, "reference": list(reference), "seeds": list(seeds), "epochs": epochs, "results": {}}
+    for nm in names + list(reference):
+        out["results"][nm] = _screen_one(nm, root, seeds, epochs, steps, hidden, depth, lr, image_hidden, image_lr)
+        r = out["results"][nm]
+        print(f"  [screen {nm:14s}] val={np.mean(r['val_acc']):.4f}±{np.std(r['val_acc']):.4f} "
+              f"sin={np.mean(r['sin']):.4f} moons={np.mean(r['moons']):.3f} spirals={np.mean(r['spirals']):.3f} "
+              f"epoch={np.mean(r['epoch_time_s']):.1f}s", flush=True)
+    best = max(names, key=lambda n: np.mean(out["results"][n]["val_acc"]))
+    out["best"] = best
+    print(f"  best candidate by validation accuracy: {best}", flush=True)
+    return out
+
+
+def run_pwl_final(root: str, acts, mlp_seeds=(0, 1, 2, 3, 4), cnn_seeds=(0, 1, 2), epochs: int = 5) -> dict:
+    """Same protocol as run_stepslope_final; ReLU/GELU rows are taken from stepslope_final.json at report time."""
+    acts = list(acts)
+    out: dict = {"acts": acts}
+    out["mnist_mlp"] = run_image("mnist", "mlp", root, seeds=mlp_seeds, epochs=epochs, acts=acts)
+    out["fashion_mlp"] = run_image("fashion", "mlp", root, seeds=mlp_seeds, epochs=epochs, acts=acts)
+    out["fashion_cnn"] = run_image("fashion", "cnn", root, seeds=cnn_seeds, epochs=epochs, acts=acts)
+    out["depth"] = run_depth_sweep(root, seeds=(0, 1, 2), epochs=3, acts=acts)
+    return out
+
+
+def run_kernel_cost(names, n: int = 4_000_000, reps: int = 20) -> dict:
+    """Forward+backward time of the activation alone, eager and torch.compile'd, plus a fused
+    MLP-block benchmark (Linear -> act -> Linear) compiled, which is what a user of the activation pays."""
+    x = torch.randn(n, requires_grad=True)
+    out: dict = {"n": n, "reps": reps, "results": {}}
+
+    def bench(f, inp):
+        for _ in range(3):
+            y = f(inp); y.sum().backward(); inp.grad = None
+        ts = []
+        for _ in range(reps):
+            t0 = time.perf_counter()
+            y = f(inp); y.sum().backward(); inp.grad = None
+            ts.append(time.perf_counter() - t0)
+        return 1e3 * float(np.median(ts))
+
+    xb = torch.randn(4096, 1024)
+    for nm in names:
+        f = activation_fn(nm)
+        rec = {"eager_ms": bench(f, x)}
+        try:
+            fc = torch.compile(f)
+            rec["compiled_ms"] = bench(fc, x)
+        except Exception as e:  # pragma: no cover
+            rec["compiled_ms"] = float("nan"); rec["compile_error"] = str(e)[:100]
+        # block benchmark: two 1024x1024 linears around the activation, batch 4096, compiled
+        set_seed(0)
+        block = torch.nn.Sequential(torch.nn.Linear(1024, 1024), make_activation(nm), torch.nn.Linear(1024, 1024))
+        try:
+            bc = torch.compile(block)
+            xb_ = xb.clone().requires_grad_(True)
+            rec["block_compiled_ms"] = bench(bc, xb_)
+        except Exception as e:  # pragma: no cover
+            rec["block_compiled_ms"] = float("nan")
+        out["results"][nm] = rec
+        print(f"  [cost {nm:14s}] eager={rec['eager_ms']:.2f}ms compiled={rec['compiled_ms']:.2f}ms "
+              f"block={rec['block_compiled_ms']:.1f}ms", flush=True)
+    return out

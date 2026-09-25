@@ -14,7 +14,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 from matplotlib.lines import Line2D  # noqa: E402
 
-from helu_research.activations import ACT_LABEL, ACT_ORDER, HELU_VARIANTS, STEPSLOPE_VARIANTS, stepslope_params, variant_label  # noqa: E402
+from helu_research.activations import ACT_LABEL, ACT_ORDER, HELU_VARIANTS, PWL_FAMILY, STEPSLOPE_VARIANTS, stepslope_params, variant_label  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent
 RES, FIG, GEN = ROOT / "results", ROOT / "figures", ROOT / "paper" / "generated"
@@ -743,6 +743,133 @@ def table_stepslope_tune():
     print("wrote tab_stepslope_tune/final")
 
 
+# ---------------------------------------------------------------- Figure 12: bounded-slope PWL candidates
+PWL_COLOR = {"pwl_relukink2": "#2a78d6", "pwl_knee": "#eb6834", "pwl_ramp4": "#1baf7a", "pwl_hgelu3": "#eda100",
+             "pwl_hgelu4": "#4a3aa7", "hardswish": "#e87ba4", "gelu": COLOR["gelu"], "relu": COLOR["relu"]}
+
+
+def fig_pwl():
+    sc = load("pwl_screen"); fin = load("pwl_final"); ssf = load("stepslope_final"); cost = load("kernel_cost")
+    best = sc["best"]
+    fig, axes = plt.subplots(1, 3, figsize=(7.2, 2.3), gridspec_kw={"width_ratios": [1.0, 1.1, 1.3]})
+    # (a) shapes of the candidates against GELU
+    ax = axes[0]
+    x = np.linspace(-4, 3, 701)
+    import torch
+    from helu_research.activations import activation_fn
+    xt = torch.tensor(x, dtype=torch.float32)
+    ax.plot(x, activation_fn("gelu")(xt).numpy(), color=COLOR["gelu"], lw=1.8, label="GELU")
+    for nm in sc["names"]:
+        ax.plot(x, activation_fn(nm)(xt).numpy(), color=PWL_COLOR[nm], lw=1.1, ls="-" if nm == best else "--",
+                label=ACT_LABEL[nm])
+    ax.set(xlim=(-4, 3), ylim=(-0.6, 3.2), xlabel="$x$", title="Candidates")
+    ax.legend(fontsize=5.5, loc="upper left", handlelength=1.2, borderpad=0.3, labelspacing=0.2)
+    # (b) screening: validation accuracy dot plot
+    ax = axes[1]
+    order = sc["names"] + sc["reference"]
+    ypos = np.arange(len(order))[::-1]
+    for y, nm in zip(ypos, order):
+        v = 100 * np.array(sc["results"][nm]["val_acc"])
+        c = PWL_COLOR.get(nm, MUTED)
+        ax.plot([v.min(), v.max()], [y, y], color=c, lw=1.2)
+        ax.plot(v.mean(), y, "o", ms=5, color=c, mec="white", mew=0.6, zorder=4)
+        ax.scatter(v, np.full(len(v), y), s=5, color=INK, zorder=3)
+    ax.axvline(100 * np.mean(sc["results"]["gelu"]["val_acc"]), color=COLOR["gelu"], lw=1.0, ls=":")
+    ax.set_yticks(ypos); ax.set_yticklabels([ACT_LABEL[n] for n in order], fontsize=7)
+    ax.tick_params(axis="y", length=0)
+    ax.set(xlabel="Fashion-MNIST validation acc. (%)", title="Screen (3 ep., 3 seeds)")
+    ax.grid(axis="x"); ax.set_axisbelow(True)
+    # (c) cost vs accuracy: compiled block time vs Fashion-MNIST MLP final test accuracy
+    ax = axes[2]
+    pts = {"relu": ssf, "gelu": ssf, best: fin, "hardswish": fin}
+    for nm, src in pts.items():
+        acc = 100 * np.mean([r["epoch_test_acc"][-1] for r in src["fashion_mlp"]["runs"][nm]])
+        sd = 100 * np.std([r["epoch_test_acc"][-1] for r in src["fashion_mlp"]["runs"][nm]], ddof=1)
+        t = cost["results"][nm]["block_compiled_ms"]
+        c = PWL_COLOR.get(nm, MUTED)
+        ax.errorbar(t, acc, yerr=sd, fmt="o", ms=6, color=c, mec="white", mew=0.6, capsize=2, lw=0.8, zorder=4)
+        ax.annotate(ACT_LABEL[nm], (t, acc), textcoords="offset points", xytext=(5, 4), fontsize=6.5, color=INK2)
+    ax.set(xlabel="compiled block time (ms, fwd+bwd)", ylabel="Fashion-MNIST MLP test acc. (%)",
+           title="Cost vs. accuracy")
+    ax.grid(axis="both"); ax.set_axisbelow(True)
+    fig.tight_layout(w_pad=1.2)
+    save(fig, "fig_pwl")
+
+
+def table_pwl():
+    sc = load("pwl_screen"); fin = load("pwl_final"); ssf = load("stepslope_final"); cost = load("kernel_cost")
+    best = sc["best"]
+    # screen table
+    rows = []
+    for nm in sc["names"] + ["MIDRULE"] + sc["reference"]:
+        if nm == "MIDRULE":
+            rows.append("\\midrule"); continue
+        r = sc["results"][nm]; star = "$^\\ast$" if nm == best else ""
+        rows.append(f"{ACT_LABEL[nm]}{star} & {len(PWL_FAMILY[nm]) if nm in PWL_FAMILY else '--'} & "
+                    f"{100 * np.mean(r['val_acc']):.2f} $\\pm$ {100 * np.std(r['val_acc'], ddof=1):.2f} & "
+                    f"{np.mean(r['sin']):.4f} & {100 * np.mean(r['moons']):.1f} & {100 * np.mean(r['spirals']):.1f} & "
+                    f"{np.mean(r['epoch_time_s']):.1f} \\\\")
+    (GEN / "tab_pwl_screen.tex").write_text(
+        "\\begin{tabular}{lcccccc}\n\\toprule\n"
+        "Activation & Pieces & Fashion val.\\ acc.\\ (\\%) & $\\sin 3x$ MSE & Moons (\\%) & Spirals (\\%) & Epoch (s) \\\\\n\\midrule\n"
+        + "\n".join(rows) + "\n\\bottomrule\n\\end{tabular}\n")
+    # head-to-head table: relu/gelu from stepslope_final, best + hardswish from pwl_final
+    src = {"relu": ssf, "gelu": ssf, best: fin, "hardswish": fin}
+    cols = ["relu", "gelu", "hardswish", best]
+    rows = []
+    for b, title in [("mnist_mlp", "MNIST, MLP"), ("fashion_mlp", "Fashion-MNIST, MLP"), ("fashion_cnn", "Fashion-MNIST, CNN")]:
+        acc = {a: [r["epoch_test_acc"][-1] for r in src[a][b]["runs"][a]] for a in cols}
+        _, p_g = welch(acc[best], acc["gelu"]); _, p_h = welch(acc[best], acc["hardswish"])
+        rows.append(f"{title} & " + " & ".join(ms(acc[a]) for a in cols) + f" & {pfmt(p_g)} & {pfmt(p_h)} \\\\")
+    for k in fin["depth"]["depths"]:
+        acc = {a: src[a]["depth"]["results"][str(k)][a] for a in cols}
+        _, p_g = welch(acc[best], acc["gelu"]); _, p_h = welch(acc[best], acc["hardswish"])
+        rows.append(f"Fashion-MNIST, MLP depth {k} (3 ep.) & " + " & ".join(ms(acc[a]) for a in cols)
+                    + f" & {pfmt(p_g)} & {pfmt(p_h)} \\\\")
+    (GEN / "tab_pwl_final.tex").write_text(
+        "\\begin{tabular}{lcccccc}\n\\toprule\n"
+        " & \\multicolumn{4}{c}{Test accuracy (mean $\\pm$ sd)} & \\multicolumn{2}{c}{$p$ (" + ACT_LABEL[best] + " vs.)} \\\\\n"
+        "\\cmidrule(lr){2-5}\\cmidrule(lr){6-7}\nBenchmark & ReLU & GELU & Hardswish & " + ACT_LABEL[best] +
+        " & GELU & Hardswish \\\\\n\\midrule\n" + "\n".join(rows) + "\n\\bottomrule\n\\end{tabular}\n")
+    # cost table
+    rows = []
+    g = cost["results"]["gelu"]
+    for nm in ["relu", "gelu", "hardswish", "ss_w2_d1"] + list(PWL_FAMILY):
+        r = cost["results"][nm]
+        lab = ACT_LABEL.get(nm, "Slope-stepper (2, 1)")
+        star = "$^\\ast$" if nm == best else ""
+        rows.append(f"{lab}{star} & {r['eager_ms']:.2f} & {r['compiled_ms']:.2f} & {r['block_compiled_ms']:.1f} & "
+                    f"{r['block_compiled_ms'] / g['block_compiled_ms']:.2f} \\\\")
+    (GEN / "tab_kernel_cost.tex").write_text(
+        "\\begin{tabular}{lcccc}\n\\toprule\n"
+        "Activation & Eager (ms) & Compiled (ms) & Compiled block (ms) & Block time / GELU \\\\\n\\midrule\n"
+        + "\n".join(rows) + "\n\\bottomrule\n\\end{tabular}\n")
+    # macros
+    m = [f"\\newcommand{{\\pwlBest}}{{{ACT_LABEL[best]}}}",
+         f"\\newcommand{{\\pwlBestPieces}}{{{len(PWL_FAMILY[best])}}}",
+         f"\\newcommand{{\\pwlBestVal}}{{{100 * np.mean(sc['results'][best]['val_acc']):.2f}}}",
+         f"\\newcommand{{\\pwlGeluVal}}{{{100 * np.mean(sc['results']['gelu']['val_acc']):.2f}}}",
+         f"\\newcommand{{\\pwlHardswishVal}}{{{100 * np.mean(sc['results']['hardswish']['val_acc']):.2f}}}"]
+    for b, key in [("mnist_mlp", "Mnist"), ("fashion_mlp", "Fashion"), ("fashion_cnn", "Cnn")]:
+        acc = {a: [r["epoch_test_acc"][-1] for r in src[a][b]["runs"][a]] for a in cols}
+        for a, ak in [("gelu", "Gelu"), ("hardswish", "Hsw"), (best, "Best")]:
+            m.append(f"\\newcommand{{\\pwl{key}{ak}}}{{{100 * np.mean(acc[a]):.2f}}}")
+        _, p_g = welch(acc[best], acc["gelu"])
+        m.append(f"\\newcommand{{\\pwl{key}PGelu}}{{{pfmt(p_g)}}}")
+    for k, kn in [(1, "One"), (2, "Two"), (4, "Four"), (8, "Eight")]:
+        for a, ak in [("gelu", "Gelu"), (best, "Best")]:
+            m.append(f"\\newcommand{{\\pwlDepth{ak}{kn}}}{{{100 * np.mean(src[a]['depth']['results'][str(k)][a]):.2f}}}")
+    for nm, key in [("gelu", "Gelu"), ("relu", "Relu"), ("hardswish", "Hsw"), (best, "Best")]:
+        r = cost["results"][nm]
+        m.append(f"\\newcommand{{\\cost{key}Eager}}{{{r['eager_ms']:.2f}}}")
+        m.append(f"\\newcommand{{\\cost{key}Compiled}}{{{r['compiled_ms']:.2f}}}")
+        m.append(f"\\newcommand{{\\cost{key}Block}}{{{r['block_compiled_ms']:.1f}}}")
+    m.append(f"\\newcommand{{\\costBestRatio}}{{{cost['results'][best]['block_compiled_ms'] / g['block_compiled_ms']:.2f}}}")
+    m.append(f"\\newcommand{{\\costBestKernelRatio}}{{{cost['results'][best]['compiled_ms'] / g['compiled_ms']:.2f}}}")
+    (GEN / "macros_pwl.tex").write_text("\n".join(m) + "\n")
+    print("wrote tab_pwl_screen/final, tab_kernel_cost")
+
+
 # ---------------------------------------------------------------- LaTeX tables
 def tables():
     out = []
@@ -870,3 +997,6 @@ if __name__ == "__main__":
     if (RES / "stepslope_tune.json").exists() and (RES / "stepslope_final.json").exists():
         fig_stepslope_tune()
         table_stepslope_tune()
+    if all((RES / f"{n}.json").exists() for n in ("pwl_screen", "pwl_final", "kernel_cost", "stepslope_final")):
+        fig_pwl()
+        table_pwl()

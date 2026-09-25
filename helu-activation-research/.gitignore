@@ -14,3 +14,4 @@ paper/*.synctex.gz
 results_variants.log
 results_tune.log
 results_final.log
+results_pwl.log

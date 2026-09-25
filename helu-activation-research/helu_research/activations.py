@@ -160,6 +160,57 @@ def stepslope_label(name: str) -> str:
     return f"W={w:g}, \u03b4={d:g}"
 
 
+# Bounded-slope piecewise-linear family (sums of a few ReLUs) ---------------
+# Each entry: list of (knot, slope_change). f(x) = sum_i slope_change_i * relu(x - knot_i).
+# Slope is bounded by the sum of positive slope changes; every function is 0 for x below its first knot.
+PWL_FAMILY: dict[str, list[tuple[float, float]]] = {
+    # capped slope-stepper (W=2, delta=1, k clipped to [-1, 1]): ReLU with slope 2 beyond x=2
+    "pwl_relukink2": [(0.0, 1.0), (2.0, 1.0)],
+    # soft knee: slopes 0 / 0.5 / 1 with breaks at -1 and 0 (capped stepper W=1, delta=0.5, k in [-2, 0])
+    "pwl_knee": [(-1.0, 0.5), (0.0, 0.5)],
+    # four-step ramp from slope 0 to 1 over [-4, 0] (capped stepper W=1, delta=0.25, k in [-4, 0])
+    "pwl_ramp4": [(-4.0, 0.25), (-3.0, 0.25), (-2.0, 0.25), (-1.0, 0.25)],
+    # three-piece linear approximation of GELU (dip to about -0.17 at -0.75)
+    "pwl_hgelu3": [(-2.5, -0.1), (-0.75, 0.3333), (0.0, 0.7667)],
+    # four-piece linear approximation of GELU
+    "pwl_hgelu4": [(-3.0, -0.085), (-1.0, 0.255), (0.0, 0.67), (1.0, 0.16)],
+}
+
+PWL_LABEL = {
+    "pwl_relukink2": "ReLU-kink-2",
+    "pwl_knee": "Knee",
+    "pwl_ramp4": "Ramp-4",
+    "pwl_hgelu3": "HardGELU-3",
+    "pwl_hgelu4": "HardGELU-4",
+}
+
+
+def pwl(x: torch.Tensor, pieces) -> torch.Tensor:
+    out = None
+    for knot, dslope in pieces:
+        term = dslope * F.relu(x - knot)
+        out = term if out is None else out + term
+    return out
+
+
+class PWL(nn.Module):
+    def __init__(self, name: str):
+        super().__init__()
+        self.name = name
+        self.pieces = PWL_FAMILY[name]
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return pwl(x, self.pieces)
+
+    def extra_repr(self) -> str:
+        return self.name
+
+
+class HardSwish(nn.Module):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return F.hardswish(x)
+
+
 # Registry ----------------------------------------------------------------
 ACTIVATIONS = {
     "relu": nn.ReLU,
@@ -167,11 +218,13 @@ ACTIVATIONS = {
     "helu": HeLU,
     "identity": Identity,
     "sawtooth": Sawtooth,                            # periodic ramp 0 -> 1 on each [k, k+2)
+    "hardswish": HardSwish,                          # reference cheap GELU/Swish approximation
 }
 
 # Order used everywhere (tables, figures, legends).
 ACT_ORDER = ["relu", "gelu", "helu", "identity"]
-ACT_LABEL = {"relu": "ReLU", "gelu": "GELU", "helu": "HeLU", "identity": "Identity (linear control)"}
+ACT_LABEL = {"relu": "ReLU", "gelu": "GELU", "helu": "HeLU", "identity": "Identity (linear control)",
+             "hardswish": "Hardswish", **PWL_LABEL}
 
 
 def make_activation(name: str) -> nn.Module:
@@ -179,6 +232,8 @@ def make_activation(name: str) -> nn.Module:
         return HeLU(*HELU_VARIANTS[name])
     if stepslope_params(name) is not None:
         return StepSlope(*stepslope_params(name))
+    if name in PWL_FAMILY:
+        return PWL(name)
     try:
         return ACTIVATIONS[name]()
     except KeyError as e:  # pragma: no cover
@@ -193,10 +248,14 @@ def activation_fn(name: str):
     if stepslope_params(name) is not None:
         w, d = stepslope_params(name)
         return lambda t: stepslope(t, w, d)
+    if name in PWL_FAMILY:
+        pieces = PWL_FAMILY[name]
+        return lambda t: pwl(t, pieces)
     return {
         "relu": F.relu,
         "gelu": F.gelu,
         "helu": helu,
         "identity": lambda t: t,
         "sawtooth": sawtooth,
+        "hardswish": F.hardswish,
     }[name]

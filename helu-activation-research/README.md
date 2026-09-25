@@ -72,3 +72,10 @@ Experiments (all CPU, seeded):
     accepted by `make_activation`.
 15. `stepslope_final` – head-to-head of the selected setting against ReLU and GELU under the full
     MNIST/Fashion-MNIST MLP, CNN and depth-sweep protocols (reads `best` from `results/stepslope_tune.json`).
+16. `pwl_screen` – five bounded-slope piecewise-linear candidates (sums of 2–4 ReLUs: capped stepper,
+    knee, ramp, two hard-GELU approximations; see `PWL_FAMILY` in `helu_research/activations.py`)
+    screened on the validation split alongside GELU, ReLU and Hardswish.
+17. `pwl_final` – head-to-head of the best candidate and Hardswish under the full protocols (ReLU/GELU
+    rows come from `stepslope_final.json`, same seeds).
+18. `kernel_cost` – eager, `torch.compile`d, and compiled linear–act–linear block timings for every
+    activation. Run on an idle machine.
