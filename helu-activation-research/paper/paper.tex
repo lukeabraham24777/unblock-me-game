@@ -53,8 +53,10 @@ and the linear control comes equally close there. An ablation over sixteen varia
 (moved, deepened, or widened) shows that the deficit is a property of the notch design rather than of
 its particular constants, and a periodic sawtooth function, tested as a further alternative, fails
 differently again: it is expressive but its constant slope makes the gradient blind to which period a
-unit is in, and training never leaves chance. All code, raw results, and figures are released
-alongside this document.
+unit is in, and training never leaves chance. A final continuous design whose slope steps up by
+$\delta$ per unit segment works only when $\delta$ is large enough to make the network visibly
+non-linear; at the proposed $\delta=0.01$ it is the identity in all but name. All code, raw results,
+and figures are released alongside this document.
 \end{abstract}
 
 \section{Introduction}
@@ -541,7 +543,48 @@ changing slopes of ReLU and GELU provide.
   \resizebox{\linewidth}{!}{\input{generated/tab_stepslope.tex}}
 \end{table}
 
-%%STEPSLOPE_PROSE%%
+The last function repairs the sawtooth's two defects in turn: it is made continuous by stacking the
+segments end to end, and made non-linear by letting the slope of each successive segment grow by a
+fixed increment $\delta$. On segment $k=\lfloor x/W\rfloor$ the slope is $1+\delta k$, for every
+integer $k$, so the function is convex, has slope exactly $1$ on $[0,W)$, and is a piecewise-linear
+approximation of the parabola $x+\delta x^2/(2W)$ with a kink at every multiple of $W$
+(Figure~\ref{fig:stepslope}, left). The proposal is to keep $\delta$ small, $0.01$, on the argument
+that pre-activations are roughly Gaussian and rarely reach the outer segments where the slope becomes
+large.
+
+That argument is correct, and it is exactly why the proposed setting does not work. With
+$\delta=0.01$ and $W=1$, the slope over the range $[-3,3]$ that contains almost all pre-activations
+varies only between $0.97$ and $1.03$, and the function deviates from the identity by at most
+$\delta x^2/(2W)\approx0.05$. This is the HeLU situation again: a non-linearity too small for gradient
+descent to exploit. Table~\ref{tab:stepslope} confirms it. At $\delta=0.01$ the trained Fashion-MNIST
+network is linear to $R^2=\rTwoSsSmall$, and every task lands at the linear control's level:
+\accSsSmallFashion\% on Fashion-MNIST, \accSsSmallMoons\% on moons, \accSsSmallSpirals\% on spirals,
+and a $\sin 3x$ MSE of \mseSsSmallSin. (The $x^2$ column is an exception for every setting and should
+be discounted: the activation is itself nearly quadratic, so a quadratic target is trivially
+representable.)
+
+Raising the curvature turns the function into a working activation. At $\delta=0.1$ the network is no
+longer linear ($R^2=\rTwoSsMid$), moons and spirals jump to \accSsMidMoons\% and \accSsMidSpirals\%,
+and Fashion-MNIST gains a point over the linear control. At $\delta=1$, where the slope changes by a
+full unit at each kink, the function reaches \accSsOneSpirals\% on spirals, fits $\sin 3x$ with MSE
+$\mseSsOneSin$ (Figure~\ref{fig:stepslope}, middle and right), and reaches \accSsOneFashion\% on
+Fashion-MNIST: a genuine non-linearity, though still two points below ReLU and GELU, which is
+consistent with what is known about quadratic-like activations in small networks. The comparison
+between $(W,\delta)=(1,1)$ and $(0.1,0.1)$ is instructive: both approximate the same parabola
+$x+x^2/2$, but the finer segmentation reaches a similar Fashion-MNIST accuracy (\accSsFineFashion\%)
+while fitting $\sin 3x$ far worse (MSE \mseSsFineSin) and losing thirteen points on spirals. The coarse
+version has a sharp ReLU-like kink every unit that a small network can place and use; the fine
+version is effectively a smooth parabola, and a two-hidden-layer network of parabolas is a
+low-degree polynomial that cannot bend around a spiral.
+
+The lesson of this final function is the mirror image of the sawtooth's. There, the function was
+expressive but its gradient uninformative; here, the gradient is informative but the proposed
+constants remove the expressiveness. The property that makes the design work when $\delta$ is large
+is that the slope, and therefore the gradient, changes appreciably with the unit's operating point,
+which is the same property that makes ReLU and GELU work. Choosing $\delta$ to keep the slope nearly
+constant across the Gaussian bulk of the pre-activations, which the proposal does to avoid exploding
+gradients, also keeps the network linear across that bulk. There is no setting of $\delta$ that is
+both safe by that criterion and useful.
 }{}
 
 \section{Discussion}
@@ -593,7 +636,12 @@ problem is the notch design rather than its constants: no bounded notch, at any 
 tried, produces a non-linear network on Fashion-MNIST, and the one variant that does is no longer a
 notch. A sawtooth function $x/2-\lfloor x/2\rfloor$, tested as a further alternative, stays at chance
 on every classification task at every learning rate we tried, because its constant slope gives the
-gradient no information about which period each unit is operating in.
+gradient no information about which period each unit is operating in. A continuous slope-stepping
+function $x+\delta x^2/(2W)$ (piecewise-linear) trains well once $\delta$ is of order one, reaching
+within two points of ReLU on Fashion-MNIST, but at the proposed $\delta=0.01$ it is
+indistinguishable from the linear control. Across all of these designs the same rule holds: an
+activation helps only if its slope changes appreciably over the range its inputs actually occupy, and
+the gradient reports that change.
 
 \section*{Reproducibility}
 
