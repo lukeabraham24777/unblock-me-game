@@ -14,7 +14,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 from matplotlib.lines import Line2D  # noqa: E402
 
-from helu_research.activations import ACT_LABEL, ACT_ORDER, HELU_VARIANTS, STEPSLOPE_VARIANTS, variant_label  # noqa: E402
+from helu_research.activations import ACT_LABEL, ACT_ORDER, HELU_VARIANTS, STEPSLOPE_VARIANTS, stepslope_params, variant_label  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent
 RES, FIG, GEN = ROOT / "results", ROOT / "figures", ROOT / "paper" / "generated"
@@ -637,6 +637,112 @@ def table_stepslope():
     print("wrote tab_stepslope")
 
 
+# ---------------------------------------------------------------- Figure 11: slope-stepper tuning + head-to-head
+def fig_stepslope_tune():
+    d = load("stepslope_tune")
+    ws, ds = d["widths"], d["deltas"]
+    fig, axes = plt.subplots(1, 2, figsize=(7.0, 2.4), gridspec_kw={"width_ratios": [1.0, 1.4]})
+    # (a) validation accuracy heat map over (W, delta)
+    ax = axes[0]
+    M = np.array([[100 * np.mean(d["results"][f"ss_w{w:g}_d{dl:g}"]["val_acc"]) for dl in ds] for w in ws])
+    cmap = matplotlib.colors.LinearSegmentedColormap.from_list("seq", ["#cde2fb", "#0d366b"])
+    im = ax.imshow(M, cmap=cmap, aspect="auto", origin="lower")
+    for i in range(len(ws)):
+        for j in range(len(ds)):
+            ax.text(j, i, f"{M[i, j]:.1f}", ha="center", va="center", fontsize=7.5,
+                    color="white" if M[i, j] > M.min() + 0.55 * (M.max() - M.min()) else INK)
+    ax.set_xticks(range(len(ds))); ax.set_xticklabels([f"{x:g}" for x in ds])
+    ax.set_yticks(range(len(ws))); ax.set_yticklabels([f"{x:g}" for x in ws])
+    ax.set_xlabel("$\\delta$"); ax.set_ylabel("$W$")
+    ax.set_title("Fashion-MNIST validation acc. (%)")
+    ax.tick_params(length=0)
+    for sp in ax.spines.values():
+        sp.set_visible(False)
+    bi, bj = np.unravel_index(M.argmax(), M.shape)
+    ax.add_patch(matplotlib.patches.Rectangle((bj - 0.5, bi - 0.5), 1, 1, fill=False, ec="#eb6834", lw=1.8))
+    # (b) head-to-head bars
+    ax = axes[1]
+    f = load("stepslope_final")
+    acts = f["acts"]; best = f["best"]
+    col = {"relu": COLOR["relu"], "gelu": COLOR["gelu"], best: "#4a3aa7"}
+    lab = {"relu": "ReLU", "gelu": "GELU", best: f"slope-stepper ({stepslope_label_tex(best)})"}
+    benches = [("mnist_mlp", "MNIST MLP"), ("fashion_mlp", "Fashion MLP"), ("fashion_cnn", "Fashion CNN")]
+    w = 0.26
+    for j, a in enumerate(acts):
+        for i, (b, _) in enumerate(benches):
+            v = np.array([r["epoch_test_acc"][-1] for r in f[b]["runs"][a]])
+            ax.bar(i + (j - 1) * w, v.mean(), width=w - 0.03, color=col[a], lw=0, label=lab[a] if i == 0 else None)
+            ax.errorbar(i + (j - 1) * w, v.mean(), yerr=v.std(ddof=1), color=INK, capsize=2, lw=0.8)
+            ax.scatter(np.full(len(v), i + (j - 1) * w) + np.linspace(-0.05, 0.05, len(v)), v, s=6, color=INK, zorder=3)
+    lo = min(np.mean([r["epoch_test_acc"][-1] for r in f[b]["runs"][a]]) for b, _ in benches for a in acts)
+    ax.set_ylim(lo - 0.03, 1.0)
+    ax.set_xticks(range(len(benches))); ax.set_xticklabels([t for _, t in benches])
+    ax.set_ylabel("final test accuracy"); ax.set_title("Head-to-head, full protocol")
+    ax.grid(axis="y"); ax.set_axisbelow(True)
+    ax.legend(fontsize=6.5, loc="upper right")
+    fig.tight_layout(w_pad=2.0)
+    save(fig, "fig_stepslope_tune")
+
+
+def stepslope_label_tex(name):
+    w, dl = stepslope_params(name)
+    return f"$W={w:g},\\ \\delta={dl:g}$"
+
+
+def table_stepslope_tune():
+    d = load("stepslope_tune")
+    rows = []
+    for nm in d["names"]:
+        r = d["results"][nm]; w, dl = stepslope_params(nm)
+        star = "$^\\ast$" if nm == d["best"] else ""
+        rows.append(f"{w:g} & {dl:g}{star} & {100 * np.mean(r['val_acc']):.2f} $\\pm$ {100 * np.std(r['val_acc'], ddof=1):.2f} & "
+                    f"{np.mean(r['final_train_loss']):.3f} & {np.mean(r['sin']):.4f} & {100 * np.mean(r['moons']):.1f} & "
+                    f"{100 * np.mean(r['spirals']):.1f} \\\\")
+    rows.append("\\midrule")
+    for a, r in d["reference"].items():
+        rows.append(f"\\multicolumn{{2}}{{l}}{{{ACT_LABEL[a]}}} & {100 * np.mean(r['val_acc']):.2f} $\\pm$ "
+                    f"{100 * np.std(r['val_acc'], ddof=1):.2f} & {np.mean(r['final_train_loss']):.3f} & "
+                    f"{np.mean(r['sin']):.4f} & {100 * np.mean(r['moons']):.1f} & {100 * np.mean(r['spirals']):.1f} \\\\")
+    (GEN / "tab_stepslope_tune.tex").write_text(
+        "\\begin{tabular}{llccccc}\n\\toprule\n"
+        "$W$ & $\\delta$ & Fashion val.\\ acc.\\ (\\%) & Train loss & $\\sin 3x$ MSE & Moons (\\%) & Spirals (\\%) \\\\\n\\midrule\n"
+        + "\n".join(rows) + "\n\\bottomrule\n\\end{tabular}\n")
+
+    f = load("stepslope_final"); best = f["best"]
+    rows = []
+    for b, title in [("mnist_mlp", "MNIST, MLP"), ("fashion_mlp", "Fashion-MNIST, MLP"), ("fashion_cnn", "Fashion-MNIST, CNN")]:
+        acc = {a: [r["epoch_test_acc"][-1] for r in f[b]["runs"][a]] for a in f["acts"]}
+        _, p_r = welch(acc[best], acc["relu"]); _, p_g = welch(acc[best], acc["gelu"])
+        rows.append(f"{title} & {ms(acc['relu'])} & {ms(acc['gelu'])} & {ms(acc[best])} & {pfmt(p_r)} & {pfmt(p_g)} \\\\")
+    dd = f["depth"]
+    for k in dd["depths"]:
+        acc = {a: dd["results"][str(k)][a] for a in f["acts"]}
+        _, p_r = welch(acc[best], acc["relu"]); _, p_g = welch(acc[best], acc["gelu"])
+        rows.append(f"Fashion-MNIST, MLP depth {k} (3 ep.) & {ms(acc['relu'])} & {ms(acc['gelu'])} & {ms(acc[best])} & {pfmt(p_r)} & {pfmt(p_g)} \\\\")
+    (GEN / "tab_stepslope_final.tex").write_text(
+        "\\begin{tabular}{lccccc}\n\\toprule\n"
+        " & \\multicolumn{3}{c}{Test accuracy (mean $\\pm$ sd)} & \\multicolumn{2}{c}{$p$ (stepper vs.)} \\\\\n"
+        "\\cmidrule(lr){2-4}\\cmidrule(lr){5-6}\nBenchmark & ReLU & GELU & Slope-stepper & ReLU & GELU \\\\\n\\midrule\n"
+        + "\n".join(rows) + "\n\\bottomrule\n\\end{tabular}\n")
+    w, dl = stepslope_params(best)
+    m = [f"\\newcommand{{\\ssBestW}}{{{w:g}}}", f"\\newcommand{{\\ssBestDelta}}{{{dl:g}}}",
+         f"\\newcommand{{\\ssBestVal}}{{{100 * np.mean(d['results'][best]['val_acc']):.2f}}}",
+         f"\\newcommand{{\\geluVal}}{{{100 * np.mean(d['reference']['gelu']['val_acc']):.2f}}}",
+         f"\\newcommand{{\\reluVal}}{{{100 * np.mean(d['reference']['relu']['val_acc']):.2f}}}"]
+    for b, key in [("mnist_mlp", "Mnist"), ("fashion_mlp", "Fashion"), ("fashion_cnn", "Cnn")]:
+        for a, ak in [("relu", "Relu"), ("gelu", "Gelu"), (best, "Ss")]:
+            v = np.mean([r["epoch_test_acc"][-1] for r in f[b]["runs"][a]])
+            m.append(f"\\newcommand{{\\final{key}{ak}}}{{{100 * v:.2f}}}")
+        acc = {a: [r["epoch_test_acc"][-1] for r in f[b]["runs"][a]] for a in f["acts"]}
+        _, p_g = welch(acc[best], acc["gelu"])
+        m.append(f"\\newcommand{{\\final{key}PGelu}}{{{pfmt(p_g)}}}")
+    for k in dd["depths"]:
+        for a, ak in [("gelu", "Gelu"), (best, "Ss")]:
+            m.append(f"\\newcommand{{\\depth{ak}{['One','Two','Four','Eight'][[1,2,4,8].index(k)]}}}{{{100 * np.mean(dd['results'][str(k)][a]):.2f}}}")
+    (GEN / "macros_stepslope_tune.tex").write_text("\n".join(m) + "\n")
+    print("wrote tab_stepslope_tune/final")
+
+
 # ---------------------------------------------------------------- LaTeX tables
 def tables():
     out = []
@@ -761,3 +867,6 @@ if __name__ == "__main__":
     if (RES / "stepslope.json").exists():
         fig_stepslope()
         table_stepslope()
+    if (RES / "stepslope_tune.json").exists() and (RES / "stepslope_final.json").exists():
+        fig_stepslope_tune()
+        table_stepslope_tune()

@@ -19,6 +19,7 @@
 \IfFileExists{generated/macros_variants.tex}{\input{generated/macros_variants.tex}}{}
 \IfFileExists{generated/macros_sawtooth.tex}{\input{generated/macros_sawtooth.tex}}{}
 \IfFileExists{generated/macros_stepslope.tex}{\input{generated/macros_stepslope.tex}}{}
+\IfFileExists{generated/macros_stepslope_tune.tex}{\input{generated/macros_stepslope_tune.tex}}{}
 
 \newtheorem{proposition}{Proposition}
 \newcommand{\helu}{\mathrm{HeLU}}
@@ -183,6 +184,13 @@ unequal-variance $t$-test.
         $P_{W,\delta}(x)=x+\delta\,[\,W k(k-1)/2 + k(x-kW)\,]$, a piecewise-linear approximation of
         $x+\delta x^2/(2W)$. Run under the E9 protocol for $(W,\delta)\in\{(1,0.01),(1,0.1),(1,1),(0.1,0.1)\}$,
         with the linear-fit $R^2$ of the trained Fashion-MNIST network.
+  \item[E12: Tuned slope-stepping function versus GELU.] A grid over $W\in\{0.5,1,2\}$ and
+        $\delta\in\{0.5,1,2,4\}$, each run for 3 epochs and 3 seeds on a 50k/10k train/validation split
+        of the Fashion-MNIST training set, with GELU and ReLU run under the identical protocol as
+        reference points. The setting with the best mean validation accuracy is then compared with GELU
+        and ReLU under the full E4, E5, and E6 protocols (MNIST and Fashion-MNIST MLPs for 5 epochs and
+        5 seeds, the Fashion-MNIST CNN for 5 epochs and 3 seeds, and the depth sweep), with Welch
+        $t$-tests. The test sets are not used for selection.
 \end{description}
 
 \section{Results}
@@ -585,6 +593,40 @@ which is the same property that makes ReLU and GELU work. Choosing $\delta$ to k
 constant across the Gaussian bulk of the pre-activations, which the proposal does to avoid exploding
 gradients, also keeps the network linear across that bulk. There is no setting of $\delta$ that is
 both safe by that criterion and useful.
+}{}
+
+\IfFileExists{generated/tab_stepslope_final.tex}{%
+\subsection{Tuning the slope-stepping function against GELU}
+\label{sec:stepslope-tune}
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=\linewidth]{fig_stepslope_tune.pdf}
+  \caption{E12. Left: mean Fashion-MNIST validation accuracy over the $(W,\delta)$ grid (3 epochs,
+  3 seeds); the orange box marks the selected setting. Right: head-to-head final test accuracy of the
+  selected setting against ReLU and GELU under the full protocol. Bars are means, whiskers $\pm1$ sd,
+  dots are seeds.}
+  \label{fig:stepslope-tune}
+\end{figure}
+
+\begin{table}[t]
+  \centering\small
+  \caption{E12 tuning grid. Validation accuracy on the held-out 10k split of the Fashion-MNIST training
+  set after 3 epochs (mean $\pm$ sd over 3 seeds), final training loss, and toy-task results. The
+  selected setting is starred. ReLU and GELU rows use the same protocol.}
+  \label{tab:stepslope-tune}
+  \resizebox{\linewidth}{!}{\input{generated/tab_stepslope_tune.tex}}
+\end{table}
+
+\begin{table}[t]
+  \centering\small
+  \caption{E12 head-to-head: the tuned slope-stepping function against ReLU and GELU under the main
+  protocols (5 seeds for the MLPs, 3 for the CNN and the depth rows), with Welch $p$-values.}
+  \label{tab:stepslope-final}
+  \resizebox{\linewidth}{!}{\input{generated/tab_stepslope_final.tex}}
+\end{table}
+
+%%STEPSLOPE_TUNE_PROSE%%
 }{}
 
 \section{Discussion}

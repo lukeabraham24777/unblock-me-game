@@ -12,6 +12,8 @@ where it is 0.9.
 """
 from __future__ import annotations
 
+import re
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -138,8 +140,23 @@ STEPSLOPE_VARIANTS: dict[str, tuple[float, float]] = {
 }
 
 
+_SS_RE = re.compile(r"^ss_w(?P<w>[0-9.]+)_d(?P<d>[0-9.]+)$")
+
+
+def stepslope_params(name: str) -> tuple[float, float] | None:
+    """(width, delta) for a name of the form ss_w<W>_d<delta>, else None."""
+    if name in STEPSLOPE_VARIANTS:
+        return STEPSLOPE_VARIANTS[name]
+    m = _SS_RE.match(name)
+    return (float(m["w"]), float(m["d"])) if m else None
+
+
+def stepslope_name(width: float, delta: float) -> str:
+    return f"ss_w{width:g}_d{delta:g}"
+
+
 def stepslope_label(name: str) -> str:
-    w, d = STEPSLOPE_VARIANTS[name]
+    w, d = stepslope_params(name)
     return f"W={w:g}, \u03b4={d:g}"
 
 
@@ -160,8 +177,8 @@ ACT_LABEL = {"relu": "ReLU", "gelu": "GELU", "helu": "HeLU", "identity": "Identi
 def make_activation(name: str) -> nn.Module:
     if name in HELU_VARIANTS:
         return HeLU(*HELU_VARIANTS[name])
-    if name in STEPSLOPE_VARIANTS:
-        return StepSlope(*STEPSLOPE_VARIANTS[name])
+    if stepslope_params(name) is not None:
+        return StepSlope(*stepslope_params(name))
     try:
         return ACTIVATIONS[name]()
     except KeyError as e:  # pragma: no cover
@@ -173,8 +190,8 @@ def activation_fn(name: str):
     if name in HELU_VARIANTS:
         lo, hi, s = HELU_VARIANTS[name]
         return lambda t: helu(t, lo, hi, s)
-    if name in STEPSLOPE_VARIANTS:
-        w, d = STEPSLOPE_VARIANTS[name]
+    if stepslope_params(name) is not None:
+        w, d = stepslope_params(name)
         return lambda t: stepslope(t, w, d)
     return {
         "relu": F.relu,

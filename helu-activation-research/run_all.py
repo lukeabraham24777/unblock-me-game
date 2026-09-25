@@ -62,6 +62,13 @@ def main() -> None:
                                                             steps=200 if q else 3000, epochs=1 if q else 3),
         "stepslope": lambda: E.run_extra(DATA, names=tuple(__import__("helu_research.activations", fromlist=["x"]).STEPSLOPE_VARIANTS),
                                          seeds=(0,) if q else (0, 1, 2), steps=200 if q else 3000, epochs=1 if q else 3),
+        "stepslope_tune": lambda: E.run_stepslope_tune(DATA, widths=(1.0,) if q else (0.5, 1.0, 2.0),
+                                                       deltas=(1.0,) if q else (0.5, 1.0, 2.0, 4.0),
+                                                       seeds=(0,) if q else (0, 1, 2), epochs=1 if q else 3,
+                                                       steps=200 if q else 3000),
+        "stepslope_final": lambda: E.run_stepslope_final(
+            DATA, best=json.load(open(RESULTS / "stepslope_tune.json"))["best"],
+            mlp_seeds=(0,) if q else (0, 1, 2, 3, 4), cnn_seeds=(0,) if q else (0, 1, 2), epochs=1 if q else 5),
     }
     names = args.only or list(jobs)
     unknown = [n for n in names if n not in jobs]

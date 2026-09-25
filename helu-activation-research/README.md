@@ -67,3 +67,8 @@ Experiments (all CPU, seeded):
 13. `stepslope` – the continuous slope-stepping function (slope `1 + delta*k` on segment
     `k = floor(x/W)`, so it approximates `x + delta*x^2/(2W)`), for `(W, delta)` in
     `{(1, 0.01), (1, 0.1), (1, 1), (0.1, 0.1)}`. See `StepSlope` in `helu_research/activations.py`.
+14. `stepslope_tune` – grid over `W in {0.5, 1, 2}`, `delta in {0.5, 1, 2, 4}` selected on a 50k/10k
+    validation split of Fashion-MNIST (GELU/ReLU run as references). Any `ss_w<W>_d<delta>` name is
+    accepted by `make_activation`.
+15. `stepslope_final` – head-to-head of the selected setting against ReLU and GELU under the full
+    MNIST/Fashion-MNIST MLP, CNN and depth-sweep protocols (reads `best` from `results/stepslope_tune.json`).

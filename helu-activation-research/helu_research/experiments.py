@@ -248,10 +248,10 @@ def run_classification_2d(seeds=(0, 1, 2, 3, 4), steps: int = 3000, hidden: int 
 # Experiment 4: image classification (MNIST / Fashion-MNIST; MLP & CNN)
 # --------------------------------------------------------------------------
 def run_image(dataset: str, arch: str, root: str, seeds=(0, 1, 2), epochs: int = 5, lr: float = 1e-3,
-              batch_size: int = 128, hidden: int = 256, depth: int = 2) -> dict:
+              batch_size: int = 128, hidden: int = 256, depth: int = 2, acts=ACT_ORDER) -> dict:
     out: dict = {"dataset": dataset, "arch": arch, "seeds": list(seeds), "epochs": epochs, "lr": lr,
-                 "batch_size": batch_size, "hidden": hidden, "depth": depth, "runs": {}}
-    for a in ACT_ORDER:
+                 "batch_size": batch_size, "hidden": hidden, "depth": depth, "acts": list(acts), "runs": {}}
+    for a in acts:
         out["runs"][a] = []
         for s in seeds:
             set_seed(s)
@@ -268,11 +268,12 @@ def run_image(dataset: str, arch: str, root: str, seeds=(0, 1, 2), epochs: int =
 # Experiment 5: depth sweep (does HeLU benefit from depth like a non-linearity?)
 # --------------------------------------------------------------------------
 def run_depth_sweep(root: str, dataset: str = "fashion", depths=(1, 2, 4, 8), seeds=(0, 1, 2),
-                    epochs: int = 3, hidden: int = 128, lr: float = 1e-3) -> dict:
-    out: dict = {"dataset": dataset, "depths": list(depths), "seeds": list(seeds), "epochs": epochs, "results": {}}
+                    epochs: int = 3, hidden: int = 128, lr: float = 1e-3, acts=ACT_ORDER) -> dict:
+    out: dict = {"dataset": dataset, "depths": list(depths), "seeds": list(seeds), "epochs": epochs,
+                 "acts": list(acts), "results": {}}
     for d in depths:
         out["results"][str(d)] = {}
-        for a in ACT_ORDER:
+        for a in acts:
             accs = []
             for s in seeds:
                 set_seed(s)
@@ -601,4 +602,75 @@ def run_sawtooth_diagnostics(root: str, lrs=(1e-2, 1e-3, 1e-4, 1e-5), seeds=(0, 
         out["descent"][a] = _descent_fraction(a, root)
         print(f"  [descent {a:9s}] " + " ".join(f"eta={k}: {v['frac_decrease']:.2f}" for k, v in out["descent"][a].items()),
               flush=True)
+    return out
+
+
+# --------------------------------------------------------------------------
+# Experiment 13: tune the slope-stepping function (W, delta) on a validation split, then head-to-head
+# --------------------------------------------------------------------------
+def fashion_trainval_loaders(root: str, batch_size: int, seed: int, n_val: int = 10_000):
+    """Fashion-MNIST split into 50k train / 10k validation (fixed split, seed-independent)."""
+    (xtr, ytr), _ = cached_image_tensors("fashion", root)
+    xv, yv = xtr[-n_val:], ytr[-n_val:]
+    xt, yt = xtr[:-n_val], ytr[:-n_val]
+    g = torch.Generator().manual_seed(seed)
+    tr = torch.utils.data.DataLoader(torch.utils.data.TensorDataset(xt, yt), batch_size=batch_size, shuffle=True,
+                                     generator=g)
+    va = torch.utils.data.DataLoader(torch.utils.data.TensorDataset(xv, yv), batch_size=1000)
+    return tr, va
+
+
+def run_stepslope_tune(root: str, widths=(0.5, 1.0, 2.0), deltas=(0.5, 1.0, 2.0, 4.0), seeds=(0, 1, 2),
+                       epochs: int = 3, steps: int = 3000, hidden: int = 64, depth: int = 2, lr: float = 3e-3,
+                       image_hidden: int = 256, image_lr: float = 1e-3, reference=("gelu", "relu")) -> dict:
+    """Grid over (W, delta). Selection metric: Fashion-MNIST *validation* accuracy (50k/10k split of the
+    training set), so the test set is untouched until the head-to-head. Toy tasks are recorded for context.
+    GELU and ReLU are run under the identical validation protocol as reference points."""
+    from .activations import stepslope_name
+
+    names = [stepslope_name(w, d) for w in widths for d in deltas]
+    out: dict = {"widths": list(widths), "deltas": list(deltas), "names": names, "seeds": list(seeds),
+                 "epochs": epochs, "results": {}, "reference": {}}
+
+    def one(nm: str) -> dict:
+        r: dict = {"val_acc": [], "final_train_loss": [], "sin": [], "moons": [], "spirals": []}
+        for s in seeds:
+            set_seed(s)
+            tr, va = fashion_trainval_loaders(root, 128, s)
+            model = MLP(28 * 28, image_hidden, 10, 2, nm)
+            hist = train_classifier(model, tr, va, epochs, image_lr, log_every=10)
+            r["val_acc"].append(hist.epoch_test_acc[-1])
+            r["final_train_loss"].append(float(np.mean(hist.step_loss[-20:])))
+            r["sin"].append(_train_reg1d_one(nm, "sin(3x)", s, steps, hidden, depth, lr))
+            r["moons"].append(_train_cls2d_one(nm, "moons", s, steps, hidden, depth, lr))
+            r["spirals"].append(_train_cls2d_one(nm, "spirals", s, steps, hidden, depth, lr))
+        return r
+
+    for nm in names:
+        out["results"][nm] = one(nm)
+        r = out["results"][nm]
+        print(f"  [tune {nm:14s}] val={np.mean(r['val_acc']):.4f}±{np.std(r['val_acc']):.4f} "
+              f"loss={np.mean(r['final_train_loss']):.3f} sin={np.mean(r['sin']):.4f} "
+              f"moons={np.mean(r['moons']):.3f} spirals={np.mean(r['spirals']):.3f}", flush=True)
+    for a in reference:
+        out["reference"][a] = one(a)
+        r = out["reference"][a]
+        print(f"  [ref  {a:14s}] val={np.mean(r['val_acc']):.4f}±{np.std(r['val_acc']):.4f} "
+              f"sin={np.mean(r['sin']):.4f} moons={np.mean(r['moons']):.3f} spirals={np.mean(r['spirals']):.3f}",
+              flush=True)
+    best = max(names, key=lambda n: np.mean(out["results"][n]["val_acc"]))
+    out["best"] = best
+    print(f"  best by validation accuracy: {best}", flush=True)
+    return out
+
+
+def run_stepslope_final(root: str, best: str, acts_ref=("relu", "gelu"), mlp_seeds=(0, 1, 2, 3, 4),
+                        cnn_seeds=(0, 1, 2), epochs: int = 5) -> dict:
+    """Head-to-head of the tuned slope-stepper against the baselines under the E4/E5/E6 protocols."""
+    acts = list(acts_ref) + [best]
+    out: dict = {"best": best, "acts": acts}
+    out["mnist_mlp"] = run_image("mnist", "mlp", root, seeds=mlp_seeds, epochs=epochs, acts=acts)
+    out["fashion_mlp"] = run_image("fashion", "mlp", root, seeds=mlp_seeds, epochs=epochs, acts=acts)
+    out["fashion_cnn"] = run_image("fashion", "cnn", root, seeds=cnn_seeds, epochs=epochs, acts=acts)
+    out["depth"] = run_depth_sweep(root, seeds=(0, 1, 2), epochs=3, acts=acts)
     return out
