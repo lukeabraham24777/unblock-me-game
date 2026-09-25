@@ -13,3 +13,4 @@ paper/*.fdb_latexmk
 paper/*.synctex.gz
 results_variants.log
 results_tune.log
+results_final.log
