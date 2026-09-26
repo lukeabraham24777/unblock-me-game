@@ -1,0 +1,15 @@
+\begin{tabular}{lllccc}
+\toprule
+Model & Activation & Execution & Test acc.\ (\%) & Epoch 1 (s) & Steady epoch (s) \\
+\midrule
+Fashion-MNIST MLP & GELU & eager & 87.50 $\pm$ 0.35 & 3.2 & 2.0 \\
+Fashion-MNIST MLP & GELU & compiled & 87.50 $\pm$ 0.35 & 13.1 & 2.1 \\
+Fashion-MNIST MLP & HardGELU-3 & eager & 87.39 $\pm$ 0.33 & 3.0 & 2.6 \\
+Fashion-MNIST MLP & HardGELU-3 & compiled & 87.50 $\pm$ 0.42 & 2.6 & 2.2 \\
+\midrule
+Fashion-MNIST CNN & GELU & eager & 90.94 $\pm$ 0.15 & 21.1 & 19.8 \\
+Fashion-MNIST CNN & GELU & compiled & 90.96 $\pm$ 0.18 & 16.6 & 16.2 \\
+Fashion-MNIST CNN & HardGELU-3 & eager & 91.16 $\pm$ 0.15 & 31.2 & 30.0 \\
+Fashion-MNIST CNN & HardGELU-3 & compiled & 91.14 $\pm$ 0.04 & 14.0 & 13.6 \\
+\bottomrule
+\end{tabular}

@@ -826,7 +826,31 @@ accuracy at ReLU's cost, and the design freedom beyond that is worth very little
   \input{generated/tab_pilot.tex}
 \end{table}
 
-%%PILOT_PROSE%%
+The cost argument of Section~\ref{sec:pwl} rests on compilation, so a natural check is a small
+factorial pilot that crosses the activation with the execution mode and confirms two things at once:
+that compiling changes the speed and not the result, and that the kernel-level advantage of
+\pwlBest{} survives in an actual training loop. Table~\ref{tab:pilot} reports the four cells for each
+model.
+
+\paragraph{Compilation does not change accuracy.} For GELU the compiled and eager cells agree to the
+last digit on the MLP (both seeds give identical accuracies) and to $\pilotCnnGeluAccDiff$ points on
+the CNN. For \pwlBest{} the differences are $\pilotMlpBestAccDiff$ points on the MLP and
+$\pilotCnnBestAccDiff$ on the CNN, well inside the seed-to-seed spread. The compiled fusion of three
+ReLU terms is numerically the same function.
+
+\paragraph{The speed result depends on the model.} On the MLP the activation is a negligible share of
+a step and all four cells train at $2$--$2.6$ s per epoch; eager \pwlBest{} is the slowest cell and
+compiling brings it level with GELU, not ahead of it. On the CNN, where the activation runs on large
+feature maps, the two execution modes reverse the ranking. Eager \pwlBest{} needs $\pilotCnnBestEagerS$ s
+per epoch against $\pilotCnnGeluEagerS$ s for eager GELU, a $50\%$ penalty; compiled \pwlBest{} needs
+$\pilotCnnBestCompiledS$ s against $\pilotCnnGeluCompiledS$ s for compiled GELU, $\pilotCnnCompiledRatio\%$
+faster. Compilation is worth $18\%$ to GELU and $55\%$ to \pwlBest{}, because it removes the
+three-pass structure that is the only reason the candidate is expensive.
+
+\paragraph{Reading.} The pilot confirms the conditional verdict of Section~\ref{sec:pwl} with an
+interaction rather than a main effect: there is no execution mode in which \pwlBest{} is worse on
+accuracy, and there is exactly one setting, compiled and convolution-heavy, in which it is meaningfully
+cheaper than GELU. Anyone deploying it without a compiler should expect to pay for it instead.
 }{}
 
 \section{Discussion}
