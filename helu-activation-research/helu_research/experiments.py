@@ -832,3 +832,47 @@ def run_compiled_epoch_time(root: str, names=("relu", "gelu", "hardswish", "pwl_
         print(f"  [epoch {nm:12s}] MLP eager={rec['mlp_eager_s_per_epoch']:.1f}s compiled={rec['mlp_compiled_s_per_epoch']:.1f}s | "
               f"CNN eager={rec['cnn_eager_s_per_epoch']:.0f}s compiled={rec['cnn_compiled_s_per_epoch']:.0f}s", flush=True)
     return out
+
+
+# --------------------------------------------------------------------------
+# Experiment 15: 2x2 pilot, activation {GELU, HardGELU-3} x execution {eager, compiled}
+# --------------------------------------------------------------------------
+def run_pilot_2x2(root: str, acts=("gelu", "pwl_hgelu3"), modes=("eager", "compiled"), archs=("mlp", "cnn"),
+                  seeds=(0, 1), epochs: int = 3, lr: float = 1e-3, batch_size: int = 128) -> dict:
+    """Every cell trains the same model from the same seed for `epochs` epochs and records, per epoch,
+    the test accuracy (always evaluated eagerly on the shared parameters) and the wall time. Batches are
+    fixed-size (the last partial batch is dropped) so the compiled graph is static. Epoch 1 in the
+    compiled cells includes compilation; epochs 2+ are steady state."""
+    out: dict = {"acts": list(acts), "modes": list(modes), "archs": list(archs), "seeds": list(seeds),
+                 "epochs": epochs, "cells": {}}
+    (xtr, ytr), (xte, yte) = cached_image_tensors("fashion", root)
+    te = torch.utils.data.DataLoader(torch.utils.data.TensorDataset(xte, yte), batch_size=1000)
+    for arch in archs:
+        for a in acts:
+            for mode in modes:
+                key = f"{arch}/{a}/{mode}"
+                runs = []
+                for sd in seeds:
+                    set_seed(sd)
+                    g = torch.Generator().manual_seed(sd)
+                    tr = torch.utils.data.DataLoader(torch.utils.data.TensorDataset(xtr, ytr), batch_size=batch_size,
+                                                     shuffle=True, generator=g, drop_last=True)
+                    model = MLP(28 * 28, 256, 10, 2, a) if arch == "mlp" else SmallCNN(a)
+                    step = torch.compile(model, dynamic=False) if mode == "compiled" else model
+                    opt = torch.optim.Adam(model.parameters(), lr=lr)
+                    rec = {"seed": sd, "epoch_time_s": [], "test_acc": [], "train_loss": []}
+                    for _ in range(epochs):
+                        model.train(); t0 = time.perf_counter(); tot = 0.0; n = 0
+                        for x, y in tr:
+                            loss = F.cross_entropy(step(x), y)
+                            opt.zero_grad(set_to_none=True); loss.backward(); opt.step()
+                            tot += loss.item(); n += 1
+                        rec["epoch_time_s"].append(time.perf_counter() - t0)
+                        rec["train_loss"].append(tot / n)
+                        acc, _ = evaluate(model, te)
+                        rec["test_acc"].append(acc)
+                    runs.append(rec)
+                    print(f"  [pilot {key:22s}] seed={sd} acc={rec['test_acc'][-1]:.4f} "
+                          f"epochs(s)={[round(t, 1) for t in rec['epoch_time_s']]}", flush=True)
+                out["cells"][key] = runs
+    return out

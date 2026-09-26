@@ -79,3 +79,6 @@ Experiments (all CPU, seeded):
     rows come from `stepslope_final.json`, same seeds).
 18. `kernel_cost` – eager, `torch.compile`d, and compiled linear–act–linear block timings for every
     activation. Run on an idle machine.
+19. `epoch_time` – eager vs compiled seconds per epoch for the Fashion-MNIST MLP and CNN.
+20. `pilot_2x2` – `{GELU, HardGELU-3} x {eager, compiled}` pilot: 3 epochs, 2 seeds, per-epoch test
+    accuracy and wall time for the MLP and CNN (checks that compilation changes speed, not accuracy).

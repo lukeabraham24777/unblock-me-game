@@ -21,6 +21,7 @@
 \IfFileExists{generated/macros_stepslope.tex}{\input{generated/macros_stepslope.tex}}{}
 \IfFileExists{generated/macros_stepslope_tune.tex}{\input{generated/macros_stepslope_tune.tex}}{}
 \IfFileExists{generated/macros_pwl.tex}{\input{generated/macros_pwl.tex}}{}
+\IfFileExists{generated/macros_pilot.tex}{\input{generated/macros_pilot.tex}}{}
 
 \newtheorem{proposition}{Proposition}
 \newcommand{\helu}{\mathrm{HeLU}}
@@ -809,6 +810,23 @@ Table~\ref{tab:pwl-final}). What this experiment establishes is therefore not a 
 function but a clean demonstration of the rule the rest of the paper converged on: a cheap
 piecewise-linear function with GELU's shape, a bounded slope, and a small negative dip matches GELU's
 accuracy at ReLU's cost, and the design freedom beyond that is worth very little.
+}{}
+
+\IfFileExists{generated/tab_pilot.tex}{%
+\subsection{Pilot: activation $\times$ execution mode}
+\label{sec:pilot}
+
+\begin{table}[t]
+  \centering\small
+  \caption{$2\times2$ pilot: $\{$GELU, HardGELU-3$\}\times\{$eager, compiled$\}$ on the Fashion-MNIST
+  MLP and CNN, 3 epochs, 2 seeds, batches of 128 with the last partial batch dropped. Accuracy is
+  always evaluated eagerly on the shared parameters. Epoch 1 of a compiled cell includes compilation;
+  ``steady epoch'' is the mean of epochs 2--3.}
+  \label{tab:pilot}
+  \input{generated/tab_pilot.tex}
+\end{table}
+
+%%PILOT_PROSE%%
 }{}
 
 \section{Discussion}

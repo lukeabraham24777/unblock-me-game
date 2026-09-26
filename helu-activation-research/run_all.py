@@ -79,6 +79,7 @@ def main() -> None:
                 __import__("helu_research.activations", fromlist=["x"]).PWL_FAMILY),
             n=100_000 if q else 4_000_000, reps=3 if q else 30),
         "epoch_time": lambda: E.run_compiled_epoch_time(DATA, warm_steps=5 if q else 30),
+        "pilot_2x2": lambda: E.run_pilot_2x2(DATA, seeds=(0,) if q else (0, 1), epochs=1 if q else 3),
     }
     names = args.only or list(jobs)
     unknown = [n for n in names if n not in jobs]

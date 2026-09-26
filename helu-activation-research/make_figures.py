@@ -886,6 +886,43 @@ def table_pwl():
     print("wrote tab_pwl_screen/final, tab_kernel_cost")
 
 
+# ---------------------------------------------------------------- Table: 2x2 pilot
+def table_pilot():
+    d = load("pilot_2x2")
+    rows = []
+    for arch, arch_lab in [("mlp", "Fashion-MNIST MLP"), ("cnn", "Fashion-MNIST CNN")]:
+        for a in d["acts"]:
+            for mode in d["modes"]:
+                runs = d["cells"][f"{arch}/{a}/{mode}"]
+                acc = np.array([r["test_acc"][-1] for r in runs])
+                e1 = np.mean([r["epoch_time_s"][0] for r in runs])
+                steady = np.mean([np.mean(r["epoch_time_s"][1:]) for r in runs]) if d["epochs"] > 1 else float("nan")
+                rows.append(f"{arch_lab} & {ACT_LABEL[a]} & {mode} & {100 * acc.mean():.2f} $\\pm$ "
+                            f"{100 * acc.std(ddof=1) if len(acc) > 1 else 0:.2f} & {e1:.1f} & {steady:.1f} \\\\")
+        rows.append("\\midrule")
+    rows.pop()
+    (GEN / "tab_pilot.tex").write_text(
+        "\\begin{tabular}{lllccc}\n\\toprule\n"
+        "Model & Activation & Execution & Test acc.\\ (\\%) & Epoch 1 (s) & Steady epoch (s) \\\\\n\\midrule\n"
+        + "\n".join(rows) + "\n\\bottomrule\n\\end{tabular}\n")
+    # macros: accuracy agreement between eager and compiled per activation, and steady-state speedups
+    m = []
+    for arch, key in [("mlp", "Mlp"), ("cnn", "Cnn")]:
+        for a, ak in [("gelu", "Gelu"), ("pwl_hgelu3", "Best")]:
+            e = np.mean([r["test_acc"][-1] for r in d["cells"][f"{arch}/{a}/eager"]])
+            c = np.mean([r["test_acc"][-1] for r in d["cells"][f"{arch}/{a}/compiled"]])
+            se = np.mean([np.mean(r["epoch_time_s"][1:]) for r in d["cells"][f"{arch}/{a}/eager"]])
+            sc = np.mean([np.mean(r["epoch_time_s"][1:]) for r in d["cells"][f"{arch}/{a}/compiled"]])
+            m.append(f"\\newcommand{{\\pilot{key}{ak}AccDiff}}{{{100 * (c - e):+.2f}}}")
+            m.append(f"\\newcommand{{\\pilot{key}{ak}EagerS}}{{{se:.1f}}}")
+            m.append(f"\\newcommand{{\\pilot{key}{ak}CompiledS}}{{{sc:.1f}}}")
+        sg = np.mean([np.mean(r["epoch_time_s"][1:]) for r in d["cells"][f"{arch}/gelu/compiled"]])
+        sb = np.mean([np.mean(r["epoch_time_s"][1:]) for r in d["cells"][f"{arch}/pwl_hgelu3/compiled"]])
+        m.append(f"\\newcommand{{\\pilot{key}CompiledRatio}}{{{100 * (1 - sb / sg):+.0f}}}")
+    (GEN / "macros_pilot.tex").write_text("\n".join(m) + "\n")
+    print("wrote tab_pilot")
+
+
 # ---------------------------------------------------------------- LaTeX tables
 def tables():
     out = []
@@ -1016,3 +1053,5 @@ if __name__ == "__main__":
     if all((RES / f"{n}.json").exists() for n in ("pwl_screen", "pwl_final", "kernel_cost", "epoch_time", "stepslope_final")):
         fig_pwl()
         table_pwl()
+    if (RES / "pilot_2x2.json").exists():
+        table_pilot()
