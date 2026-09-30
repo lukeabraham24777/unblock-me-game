@@ -1,10 +1,10 @@
-# Unblock Me - https://unblock-me-game.vercel.app/
+# Unblock Me - https://app.luke-abraham.com/
 
 A custom, playable sliding block puzzle game built with React. Design your own puzzles with a drag-and-drop map builder, then solve them by sliding blocks to free the red target piece.
 
 ![Built with React](https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=white)
 ![Styled with Glassmorphism](https://img.shields.io/badge/Design-Glassmorphism-blueviolet)
-![Deployed on Vercel](https://img.shields.io/badge/Deployed-Vercel-black?logo=vercel)
+![Deployed on Cloudflare Workers](https://img.shields.io/badge/Deployed-Cloudflare%20Workers-F38020?logo=cloudflare&logoColor=white)
 
 ## How It Works
 
@@ -50,11 +50,13 @@ npm run dev
 
 Open `http://localhost:5173` in your browser.
 
-### Deploy to Vercel
+### Deploy to Cloudflare Workers
 
 1. Push to a GitHub repository
-2. Import the repo at [vercel.com](https://vercel.com)
-3. Deploy — Vercel auto-detects Vite and handles the rest
+2. Connect the repo in Cloudflare Workers & Pages (settings come from `wrangler.jsonc`)
+3. Build command `npm run build` (output `dist`, with SPA fallback), deploy command `npx wrangler deploy`
+
+Live at https://app.luke-abraham.com (also https://unblock-me-game.lukeabraham06.workers.dev).
 
 ## Controls
 
