@@ -1,0 +1,11 @@
+// Cloudflare Workers config: serves the Vite build (npm run build → dist/) as static files.
+// Build command: npm run build   Deploy command: npx wrangler deploy
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "unblock-me-game",
+  "compatibility_date": "2026-09-01",
+  "assets": {
+    "directory": "dist",
+    "not_found_handling": "single-page-application"
+  }
+}
